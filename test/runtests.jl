@@ -126,4 +126,78 @@ using JuLean
         @test res_lean.backend == :Lean4
     end
 
+    @testset "6. Composite Structs & Field Projections" begin
+        @formalize struct Interval
+            lo::Real
+            hi::Real
+        end
+
+        @test haskey(JuLean.STRUCT_REGISTRY, :Interval)
+        @test occursin("structure Interval", to_lean(JuLean.STRUCT_REGISTRY[:Interval]))
+
+        @formalize function span(iv::Interval)::Real
+            @requires iv.lo <= iv.hi
+            @ensures result >= 0
+            return iv.hi - iv.lo
+        end
+
+        # Test verification in Z3
+        res_z3 = JuLean.verify(:span; backend=:Z3)
+        @test res_z3.status == StatusVerified
+        @test is_verified(res_z3)
+
+        # Test verification in Lean 4
+        res_lean = JuLean.verify(:span; backend=:Lean4, tactic="by\n  unfold span\n  linarith")
+        @test res_lean.status == StatusVerified
+        @test is_verified(res_lean)
+    end
+
+    @testset "7. Mathematical Quantifiers (@forall, @exists)" begin
+        @formalize function min_val(x::Real, y::Real)::Real
+            @requires x >= 0 && y >= 0
+            @ensures @forall(t::Real, (t <= x && t <= y) ⟹ t <= result)
+            return x < y ? x : y
+        end
+
+        # Verify with Z3
+        res_z3 = JuLean.verify(:min_val; backend=:Z3)
+        @test res_z3.status == StatusVerified
+        @test is_verified(res_z3)
+
+        # Verify with Lean 4
+        res_lean = JuLean.verify(:min_val; backend=:Lean4, tactic="by\n  unfold min_val\n  intro t ht\n  split_ifs <;> linarith")
+        @test res_lean.status == StatusVerified
+        @test is_verified(res_lean)
+    end
+
+    @testset "8. Collections & Array Indexing" begin
+        @formalize function safe_get(arr::Vector{Real}, i::UInt)::Real
+            @requires 0 <= i < length(arr)
+            @ensures result == arr[i]
+            return arr[i]
+        end
+
+        # Verify with Z3
+        res_z3 = JuLean.verify(:safe_get; backend=:Z3)
+        @test res_z3.status == StatusVerified
+        @test is_verified(res_z3)
+
+        # Verify with Lean 4
+        res_lean = JuLean.verify(:safe_get; backend=:Lean4, tactic="by\n  unfold safe_get\n  rfl")
+        @test res_lean.status == StatusVerified
+        @test is_verified(res_lean)
+
+        # Bug detection with Z3
+        @formalize function buggy_get(arr::Vector{Real}, i::UInt)::Real
+            @requires 0 <= i < length(arr)
+            @ensures result == arr[i]
+            # Bug: returns element at index 0 regardless of i
+            return arr[0]
+        end
+
+        res_buggy = JuLean.verify(:buggy_get; backend=:Z3)
+        @test res_buggy.status == StatusCounterexample
+        @test !is_verified(res_buggy)
+    end
+
 end

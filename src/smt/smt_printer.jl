@@ -314,10 +314,11 @@ of the postconditions. If satisfiable (`sat`), a counterexample exists.
 """
 function generate_smtlib_query(spec::FormalSpecification; logic::String="")::String
     has_quant = any(has_quantifier, spec.preconditions) || any(has_quantifier, spec.postconditions)
-    # Use ALL if structs, quantifiers, or complex sorts are present, otherwise default to QF_LRA
+    has_arrays = any(t -> occursin("Array", julia_to_smt_type(t)), values(spec.arg_types))
+    # Use ALL if structs, quantifiers, or array sorts are present, otherwise default to QF_LRA
     effective_logic = if !isempty(logic)
         logic
-    elseif !isempty(STRUCT_REGISTRY) || has_quant
+    elseif !isempty(STRUCT_REGISTRY) || has_quant || has_arrays
         "ALL"
     else
         "QF_LRA"
@@ -336,10 +337,19 @@ function generate_smtlib_query(spec::FormalSpecification; logic::String="")::Str
     end
 
     # Declare argument constants
+    array_sorts = Set{String}()
     for arg in spec.args
         t = get(spec.arg_types, arg, Real)
         sort_str = julia_to_smt_type(t)
+        if occursin("Array", sort_str)
+            push!(array_sorts, sort_str)
+        end
         push!(lines, "(declare-const $arg $sort_str)")
+    end
+
+    # Declare size function for arrays
+    for asort in array_sorts
+        push!(lines, "(declare-fun size ($asort) Int)")
     end
 
     # Declare result constant

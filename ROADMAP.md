@@ -103,8 +103,9 @@ To ensure clean modularity and reusability, responsibilities are strictly separa
 | **Verification** | Unified `@formalize` Macro | **P0** | Completed | Single decorator combining runtime contract generation with automated Lean 4 compilation & verification. |
 | **Verification** | Structured Result Diagnostics | **P0** | Completed | `VerificationResult` detailing verification status, backend, proof script, counterexamples, and timings. |
 | **Testing** | Unit & Integration Test Suite | **P0** | Completed | Comprehensive test suite in `test/runtests.jl` covering contracts, transpiler, Z3, and Lean 4 (100% passing). |
-| **Transpiler** | Julia `struct` to Lean `structure` Transpiler | **P1** | Planned | Transpiles pure Julia composite types into Lean 4 `structure` definitions with field projections. |
-| **Verification** | Automated Quantifier Support ($\forall, \exists$) | **P1** | Planned | Expressive macro syntax for universal and existential quantifiers over collections and intervals. |
+| **Transpiler** | Julia `struct` to Lean `structure` Transpiler | **P0** | Completed | Transpiles pure Julia composite types into Lean 4 `structure` definitions with field projections. |
+| **Verification** | Automated Quantifier Support ($\forall, \exists$) | **P0** | Completed | Expressive macro syntax for universal and existential quantifiers over collections, intervals, and sorts. |
+| **Verification** | Collection Primitives & Array Indexing | **P0** | Completed | Multi-backend support for array lookups (`arr[i]`), bounds checks, and array size modeling. |
 | **Verification** | Inductive Loop Verification | **P1** | Planned | Automatically translates loops with `@invariant` into inductive Lean 4 definitions and termination proofs. |
 | **Metatheory** | Equality Saturation Extension | **P2** | Future | Optional package extension (`JuLeanMetatheoryExt`) for algebraic simplification via E-graphs. |
 | **CI / CD** | Automated Continuous Verification | **P1** | Planned | GitLab CI integration validating that all annotated functions verify against Lean 4 and Z3. |
@@ -125,10 +126,10 @@ To ensure clean modularity and reusability, responsibilities are strictly separa
 - [x] Create package root module (`src/JuLean.jl`) with unified `@formalize` and `verify` APIs.
 - [x] Implement automated test suite (`test/runtests.jl`) with 100% passing tests.
 
-### Phase 2: Enhanced Language Expressivity & Data Structures (v0.2.0)
-- [ ] Implement `struct` transpilation: translate Julia `struct` definitions into Lean 4 `structure` declarations.
-- [ ] Add support for collection primitives (vectors, arrays, sets) with indexed access properties.
-- [ ] Add quantifier macros (`@forall`, `@exists`) for expressive specifications over collections.
+### Phase 2: Enhanced Language Expressivity & Data Structures (v0.2.0) — *Current Phase (In Progress)*
+- [x] Implement `struct` transpilation: translate Julia `struct` definitions into Lean 4 `structure` declarations.
+- [x] Add support for collection primitives (vectors, arrays) with indexed access properties and bounds contracts.
+- [x] Add quantifier macros (`@forall`, `@exists`) for expressive specifications over collections and types.
 - [ ] Implement inductive loop contract synthesis: translate `while` and `for` loops annotated with `@invariant` into recursive Lean definitions.
 
 ### Phase 3: Advanced Verification Tactics & Counterexample Analysis (v0.3.0)

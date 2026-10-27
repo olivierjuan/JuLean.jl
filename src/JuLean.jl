@@ -77,9 +77,9 @@ Verifies a `FormalSpecification` using the designated backend:
 - `:Z3`: Rapid automated falsification and counterexample check via Z3 SMT solver.
 - `:Lean4`: Mechanized proof verification using Lean 4 and Mathlib.
 """
-function verify(spec::FormalSpecification; backend::Symbol=:Z3, timeout::Float64=30.0, tactic::String="")::VerificationResult
+function verify(spec::FormalSpecification; backend::Symbol=:Z3, timeout::Float64=30.0, tactic::String="", logic::String="")::VerificationResult
     if backend == :Z3
-        return verify_with_z3(spec; timeout=timeout)
+        return verify_with_z3(spec; logic=logic, timeout=timeout)
     elseif backend == :Lean4
         lean_def, lean_thm = transpile_to_lean_decl(spec; tactic=tactic)
         struct_decls = [to_lean(s) for s in values(STRUCT_REGISTRY)]
