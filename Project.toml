@@ -1,19 +1,27 @@
 name = "JuLean"
 uuid = "60d1f2a1-a197-4d78-8ba3-1a6337fe4745"
 authors = ["Olivier Juan", "JuLean Contributors"]
-version = "0.1.0"
+version = "1.0.0"
 
 [deps]
 MacroTools = "1914dd2f-81c6-5fcd-8719-6d5c9610ff09"
 z3_jll = "1bc4e1ec-7839-5212-8f2f-0d16b7bd09bc"
 
+[weakdeps]
+Metatheory = "e9d8d322-4543-424a-9be4-0cc815abe26c"
+
+[extensions]
+JuLeanMetatheoryExt = "Metatheory"
+
 [extras]
+Metatheory = "e9d8d322-4543-424a-9be4-0cc815abe26c"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [targets]
-test = ["Test"]
+test = ["Test", "Metatheory"]
 
 [compat]
 julia = "1.10"
 MacroTools = "0.5"
+Metatheory = "2.0"
 z3_jll = "4.16"

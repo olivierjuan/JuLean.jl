@@ -92,6 +92,12 @@ function VerificationResult(name::Symbol, status::VerificationStatus, backend::S
     return VerificationResult(name, status, backend, message, lean_code, smt_code, counterexample, unsat_core, elapsed_time)
 end
 
+"""
+    is_verified(res::VerificationResult) -> Bool
+
+Returns `true` if the verification attempt succeeded, i.e. the specification
+was proven valid (Lean 4) or no counterexample was found (Z3).
+"""
 function is_verified(res::VerificationResult)
     return res.status == StatusVerified
 end

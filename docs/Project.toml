@@ -1,0 +1,6 @@
+[deps]
+Documenter = "e30172f5-a6a5-5e46-b86c-9c0d8f47cbed"
+JuLean = "60d1f2a1-a197-4d78-8ba3-1a6337fe4745"
+
+[compat]
+Documenter = "1"

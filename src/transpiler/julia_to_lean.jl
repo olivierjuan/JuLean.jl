@@ -422,6 +422,17 @@ function transpile_to_lean_decl(spec::FormalSpecification; tactic::String="")
         res
     end
 
+    default_tactic = if isempty(tactic)
+        synthesize_tactic(spec)
+    else
+        tactic
+    end
+
+    lean_thm = LeanTheorem(thm_name, lean_args, hyps, stmt, default_tactic, "Specification for `$(fn_name)`")
+
+    return lean_def, lean_thm
+end
+
 """
     has_branching(ex) -> Bool
 
@@ -459,17 +470,6 @@ function synthesize_tactic(spec::FormalSpecification)::String
         push!(lines, "  try (split_ifs <;> try constructor <;> try linarith <;> try omega <;> try decide <;> try rfl)")
     end
 
-    push!(lines, "  first | linarith | omega | decide | rfl | aesop | sorry")
+    push!(lines, "  first | linarith | omega | decide | rfl | aesop | norm_num")
     return join(lines, "\n")
-end
-
-    default_tactic = if isempty(tactic)
-        synthesize_tactic(spec)
-    else
-        tactic
-    end
-
-    lean_thm = LeanTheorem(thm_name, lean_args, hyps, stmt, default_tactic, "Specification for `$(fn_name)`")
-
-    return lean_def, lean_thm
 end

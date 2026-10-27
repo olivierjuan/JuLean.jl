@@ -107,13 +107,14 @@ To ensure clean modularity and reusability, responsibilities are strictly separa
 | **Verification** | Automated Quantifier Support ($\forall, \exists$) | **P0** | Completed | Expressive macro syntax for universal and existential quantifiers over collections, intervals, and sorts. |
 | **Verification** | Collection Primitives & Array Indexing | **P0** | Completed | Multi-backend support for array lookups (`arr[i]`), bounds checks, and array size modeling. |
 | **Verification** | Inductive Loop Verification | **P0** | Completed | Extracts and enforces loop invariants (`@invariant`) at runtime and exports inductive VCs. |
-| **Verification** | Automated Tactic Synthesis (`synthesize_tactic`) | **P0** | Completed | Heuristic proof script generator adapting to specification shapes, branches, and quantifiers. |
+| **Verification** | Automated Tactic Synthesis (`synthesize_tactic`) | **P0** | Completed | Heuristic proof script generator adapting to specification shapes, branches, and quantifiers. Defined at module level; its fallback chain never emits `sorry` (soundness). |
 | **SMT Backend** | Minimal Unsat-Core Extraction (Z3) | **P0** | Completed | Automatic extraction of essential preconditions with named assertion tracking in SMT-LIB2. |
 | **Verification** | Bounded Model Checking (BMC) for Loops | **P0** | Completed | Unrolls while/for loops to depth $k$ in SMT to verify invariant preservation and detect step bugs. |
 | **Tooling** | Standalone Lean 4 Code Exporter | **P0** | Completed | Serializes all registered structs, definitions, and theorems to compilable Lean files (`export_lean_file`). |
 | **Tooling** | Verification Summary Reporter | **P0** | Completed | Generates formatted overview tables (`verification_summary`) of contract counts and specification types. |
-| **CI / CD** | Automated Continuous Verification | **P0** | Completed | GitLab CI pipeline (`.gitlab-ci.yml`) validating that all annotated functions verify against Lean 4 and Z3. |
-| **Metatheory** | Equality Saturation Extension | **P2** | Future | Optional package extension (`JuLeanMetatheoryExt`) for algebraic simplification via E-graphs. |
+| **CI / CD** | Automated Continuous Verification | **P0** | Completed | GitLab CI pipeline (`.gitlab-ci.yml`) with unit/SMT jobs and a real Lean 4 verification gate backed by a cached Mathlib toolchain, plus GitLab Pages documentation deployment. |
+| **Metatheory** | Equality Saturation Extension (`JuLeanMetatheoryExt`) | **P0** | Completed | Optional package extension for algebraic normalization and E-graph simplification via Metatheory.jl. |
+| **Documentation** | Documentation Suite (`docs/`) | **P0** | Completed | Documenter.jl site with overview, user guide, and API reference; dedicated `docs/Project.toml`; built and deployed to GitLab Pages by CI. |
 
 ---
 
@@ -142,8 +143,25 @@ To ensure clean modularity and reusability, responsibilities are strictly separa
 - [x] Unsat-core extraction in Z3: report the minimal set of preconditions required for validity.
 - [x] Bounded model checking for loop invariants using SMT unrolling (`verify_bmc`).
 
-### Phase 4: Bi-directional Certified Synthesis & Tooling (v1.0.0) — *Current Phase (In Progress)*
+### Phase 4: Bi-directional Certified Synthesis & Tooling (v0.4.0) — *Completed*
 - [x] Bidirectional verification: export verified Lean 4 definitions, theorems, and structures into standalone compilable Lean files (`export_lean_file`).
-- [x] Continuous formal verification in CI pipeline (`.gitlab-ci.yml`).
-- [ ] Optional E-graph rewrites via extension (`Metatheory.jl`) for non-linear algebraic canonicalization.
-- [ ] Complete documentation site generated with Documenter.jl.
+- [x] Continuous formal verification in CI pipeline (`.gitlab-ci.yml`) — *upgraded to a real gate in Phase 5*.
+- [x] Optional E-graph rewrites via extension (`JuLeanMetatheoryExt`) for algebraic canonicalization.
+- [x] Complete documentation suite (`docs/`) with user guide, verification manual, and full API reference. *(build repaired in Phase 5)*
+
+### Phase 5: Soundness Hardening, Packaging & Release Readiness (v1.0.0) — *Completed (October 2026)*
+Discovered during the October 2026 project audit. All items below were resolved; the full test suite (100/100) and the Documenter build pass locally.
+
+- [x] **Soundness fix (critical):** `verify(...; backend=:Lean4)` treated a Lean exit code 0 with no errors as a successful proof, but `sorry` only emits a *warning* — a demonstrably false theorem was reported as `StatusVerified`. Now any `sorry` warning fails verification (`StatusError`), and `sorry` was removed from the `synthesize_tactic` fallback chain (replaced by `norm_num`). Regression tests added (test set 15).
+- [x] **Fixed broken function nesting in `src/transpiler/julia_to_lean.jl`:** `transpile_to_lean_decl` was missing its `end`, so `has_branching` and `synthesize_tactic` were accidentally nested inside it (`JuLean.synthesize_tactic` was exported yet undefined at module level).
+- [x] **Repaired the Documenter build:** added missing docstrings (`is_verified`, `SPEC_REGISTRY`), extended the API manual (`STRUCT_REGISTRY`, `LeanConfig`, bridge utilities), added `docs/Project.toml` declaring Documenter, and set `warnonly = [:missing_docs]` for internal helpers. The build now exits 0.
+- [x] **Added a top-level `README.md`** with project overview, installation, quickstart example, and links to the documentation.
+- [x] **Removed machine-specific hardcoded paths** from `src/lean_bridge.jl`; project discovery now relies on `set_lean_project_dir!`, `LEAN_PROJECT_DIR` / `LAKE_PROJECT_DIR`, and relative path candidates only.
+- [x] **Made the CI Lean 4 job a real gate:** the job now provisions Mathlib v4.35.0 via `lake exe cache get` (cached between runs), sets `LEAN_PROJECT_DIR`, and dropped `allow_failure: true`. Added a `pages` job deploying the documentation. *(Pipeline validated against the same toolchain versions locally; not yet exercised on a GitLab runner.)*
+- [x] **Bumped `Project.toml` to version 1.0.0** with the full test suite and doc build passing.
+
+### Phase 6: Ecosystem Integration with Sirocco.jl & DunesLean (v1.1.0) — *Current Phase*
+- [ ] Annotate Sirocco.jl's critical routines (pivot conditions, pricing rules, dual feasibility) with JuLean contracts via `@formalize`.
+- [ ] Register Sirocco domain types (`GMCFProblem`, `QuasiTree`, ...) through the extensible type registry (`register_lean_type!`).
+- [ ] Link JuLean-exported specifications to hand-written Mathlib proofs in `DunesLean` (strong duality, quasi-tree basis properties, certificate validity).
+- [ ] Cross-backend feedback loop: use Z3 counterexamples and unsat cores to suggest contract strengthening to the user.

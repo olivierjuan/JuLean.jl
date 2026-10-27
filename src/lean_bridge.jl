@@ -89,9 +89,7 @@ function find_lean_project_dir()::String
         joinpath(pwd(), "formalization"),
         joinpath(pwd(), "lean"),
         joinpath(pwd(), "..", "formalization"),
-        joinpath(dirname(dirname(@__DIR__)), "formalization"),
-        "/home/D01856/dunes/formalization",
-        "/home/D01856/dunes_lean4/formalization"
+        joinpath(dirname(dirname(@__DIR__)), "formalization")
     ]
     for c in candidates
         if isdir(c) && (isfile(joinpath(c, "lakefile.toml")) || isfile(joinpath(c, "lakefile.lean")))

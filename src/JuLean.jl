@@ -24,7 +24,24 @@ include("smt/bmc.jl")
 include("export.jl")
 
 # Global specification registry for formalized functions
+"""
+    SPEC_REGISTRY
+
+Global registry mapping function names (`Symbol`) to their extracted `FormalSpecification`.
+Every function annotated with `@formalize` registers its specification here,
+making it available to `verify`, `export_lean_file`, and `verification_summary`.
+"""
 const SPEC_REGISTRY = Dict{Symbol, FormalSpecification}()
+
+"""
+    simplify_expr(expr) -> Expr
+
+Simplifies an algebraic expression. When `Metatheory.jl` is loaded,
+the `JuLeanMetatheoryExt` extension performs equality saturation and term rewriting.
+"""
+function simplify_expr(expr)
+    return expr
+end
 
 """
     extract_formal_spec(fdef::Expr) -> FormalSpecification
@@ -92,8 +109,17 @@ function verify(spec::FormalSpecification; backend::Symbol=:Z3, timeout::Float64
         struct_header = isempty(struct_decls) ? "" : join(struct_decls, "\n\n") * "\n\n"
         code = struct_header * to_lean(lean_def) * "\n\n" * to_lean(lean_thm)
         run_res = run_lean(code; timeout=timeout)
-        status = run_res.success ? StatusVerified : StatusError
-        msg = run_res.success ? "Verified by Lean 4" : join(run_res.errors, "\n")
+        # Soundness: a proof that relies on `sorry` is NOT verified.
+        # Lean reports `sorry` as a warning, so exit code 0 alone is not sufficient.
+        uses_sorry = any(w -> occursin("sorry", lowercase(w)), run_res.warnings)
+        status = (run_res.success && !uses_sorry) ? StatusVerified : StatusError
+        if !run_res.success
+            msg = isempty(run_res.errors) ? "Lean 4 exited with code $(run_res.exit_code)" : join(run_res.errors, "\n")
+        elseif uses_sorry
+            msg = "Proof relies on `sorry`; the theorem is not fully verified"
+        else
+            msg = "Verified by Lean 4"
+        end
         return VerificationResult(
             spec.name,
             status,
@@ -242,6 +268,7 @@ export
 
     # Export & Artifacts
     export_lean_file,
-    verification_summary
+    verification_summary,
+    simplify_expr
 
 end # module JuLean

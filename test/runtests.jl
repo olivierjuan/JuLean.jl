@@ -305,4 +305,48 @@ using JuLean
         @test occursin("clamp_flow", summary_str)
     end
 
+    @testset "14. Metatheory E-Graph Simplification Extension" begin
+        try
+            @eval import Metatheory
+            @test simplify_expr(:(x + 0)) == :x
+            @test simplify_expr(:(0 + x)) == :x
+            @test simplify_expr(:(x * 1)) == :x
+            @test simplify_expr(:(x - x)) == 0
+            @test simplify_expr(:((x * 1) + 0)) == :x
+        catch
+            @test simplify_expr(:(x + 0)) isa Expr
+            @test simplify_expr(42) == 42
+        end
+    end
+
+    @testset "15. Soundness: `sorry` never counts as verified" begin
+        @formalize struct NegInterval
+            lo::Real
+            hi::Real
+        end
+
+        @formalize function fake_span(iv::NegInterval)::Real
+            @requires iv.lo <= iv.hi
+            @ensures result >= 0
+            return iv.lo - iv.hi # BUG: result <= 0, the theorem is FALSE
+        end
+
+        # A `sorry`-based "proof" must NOT be reported as verified
+        res_sorry = JuLean.verify(:fake_span; backend=:Lean4,
+                                  tactic="by\n  unfold fake_span\n  first | linarith | sorry")
+        @test res_sorry.status != StatusVerified
+        @test !is_verified(res_sorry)
+        @test occursin("sorry", res_sorry.message)
+
+        # `synthesize_tactic` must be defined at module level and never emit `sorry`
+        @test isdefined(JuLean, :synthesize_tactic)
+        tactic = JuLean.synthesize_tactic(SPEC_REGISTRY[:fake_span])
+        @test !occursin("sorry", tactic)
+
+        # An honestly unprovable theorem must fail closed (no `sorry` escape hatch)
+        res_fail = JuLean.verify(:fake_span; backend=:Lean4)
+        @test res_fail.status == StatusError
+        @test !is_verified(res_fail)
+    end
+
 end

@@ -4,6 +4,7 @@
 stages:
   - test
   - formal_verification
+  - doc
 
 default:
   image: julia:1.10
@@ -21,11 +22,37 @@ test:smt:
   script:
     - julia --project test/runtests.jl
 
+# Real verification gate: provisions a Mathlib toolchain (v4.35.0, cached between runs)
+# so that every Lean 4 / Mathlib proof in the test suite must genuinely succeed.
 formal_verification:lean4:
   stage: formal_verification
+  variables:
+    MATHLIB_VERSION: "v4.35.0"
   script:
-    - curl https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh -sSf | sh -s -- -y --default-toolchain leanprover/lean4:v4.35.0
+    - curl https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh -sSf | sh -s -- -y
     - export PATH="$HOME/.elan/bin:$PATH"
     - lean --version
-    - julia --project test/runtests.jl
-  allow_failure: true
+    - |
+      if [ ! -d mathlib4/.lake ]; then
+        rm -rf mathlib4
+        git clone --depth 1 --branch "$MATHLIB_VERSION" https://github.com/leanprover-community/mathlib4.git
+      fi
+    - cd mathlib4 && lake exe cache get && cd ..
+    - export LEAN_PROJECT_DIR="$PWD/mathlib4"
+    - julia --project -e 'using Pkg; Pkg.instantiate(); Pkg.test()'
+  cache:
+    key: mathlib-$MATHLIB_VERSION
+    paths:
+      - mathlib4/.lake
+
+# Documentation site (GitLab Pages)
+pages:
+  stage: doc
+  script:
+    - julia --project=docs -e 'using Pkg; Pkg.develop(path=pwd()); Pkg.instantiate(); include("docs/make.jl")'
+    - mv docs/build public
+  artifacts:
+    paths:
+      - public
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'

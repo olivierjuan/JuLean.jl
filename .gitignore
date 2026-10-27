@@ -1,0 +1,10 @@
+# Build artifacts
+docs/build/
+
+# Julia
+*.jl.*.cov
+*.jl.mem
+deps/deps.jl
+
+# Generated Lean verification scratch files
+julean_verify_*.lean

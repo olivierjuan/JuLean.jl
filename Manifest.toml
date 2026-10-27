@@ -2,7 +2,7 @@
 
 julia_version = "1.12.6"
 manifest_format = "2.0"
-project_hash = "cbdcfe08c3f20eeffe8af4463e9652805e5eee1d"
+project_hash = "e6ea0d92ea143c6ada5a6cc305e009402bb10898"
 
 [[deps.Artifacts]]
 uuid = "56f22d72-fd6d-98f1-02f0-08ddc0907c33"
@@ -34,6 +34,12 @@ deps = ["MacroTools", "z3_jll"]
 path = "."
 uuid = "60d1f2a1-a197-4d78-8ba3-1a6337fe4745"
 version = "0.1.0"
+
+    [deps.JuLean.extensions]
+    JuLeanMetatheoryExt = "Metatheory"
+
+    [deps.JuLean.weakdeps]
+    Metatheory = "e9d8d322-4543-424a-9be4-0cc815abe26c"
 
 [[deps.Libdl]]
 uuid = "8f399da3-3557-5675-b5ff-fb832c97cbdb"
