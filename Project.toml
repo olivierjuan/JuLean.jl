@@ -1,0 +1,25 @@
+name = "JuLean"
+uuid = "60d1f2a1-a197-4d78-8ba3-1a6337fe4745"
+authors = ["Olivier Juan", "JuLean Contributors"]
+version = "0.1.0"
+
+[deps]
+MacroTools = "1914dd2f-81c6-5fcd-8719-6d5c9610ff09"
+Metatheory = "e9d8d322-4543-424a-9be4-0cc815abe26c"
+OrderedCollections = "bac558e1-5e72-5ebc-8fee-abe8a469f55d"
+Satisfiability = "160ab843-0bc6-4ba4-9585-b7478b70f443"
+z3_jll = "1bc4e1ec-7839-5212-8f2f-0d16b7bd09bc"
+
+[extras]
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[targets]
+test = ["Test"]
+
+[compat]
+julia = "1.10"
+MacroTools = "0.5"
+Metatheory = "2.0"
+OrderedCollections = "1.8"
+Satisfiability = "0.2"
+z3_jll = "4.16"
