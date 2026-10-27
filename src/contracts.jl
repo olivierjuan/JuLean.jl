@@ -38,7 +38,51 @@ const ⟹ = implies
 const --> = implies
 
 # Export operators
-export implies, ⟹, -->
+export implies, ⟹, -->, @forall, @exists
+
+"""
+    @forall(var in collection, condition)
+    @forall(var::Type, condition)
+
+Universal quantifier specification.
+- For discrete collections or ranges (e.g. `i in 1:n`), evaluates `all(i -> condition, collection)` at runtime.
+- For typed domains (e.g. `x::Real`), evaluated symbolically by Lean 4 and SMT solvers.
+"""
+macro forall(binding, cond)
+    if binding isa Expr && binding.head == :call && binding.args[1] in (:in, :∈)
+        var = binding.args[2]
+        coll = binding.args[3]
+        return :(all($(esc(var)) -> $(esc(cond)), $(esc(coll))))
+    elseif binding isa Expr && (binding.head == :comparison || binding.head == :in)
+        var = binding.args[1]
+        coll = binding.args[end]
+        return :(all($(esc(var)) -> $(esc(cond)), $(esc(coll))))
+    else
+        return :(true)
+    end
+end
+
+"""
+    @exists(var in collection, condition)
+    @exists(var::Type, condition)
+
+Existential quantifier specification.
+- For discrete collections or ranges (e.g. `i in 1:n`), evaluates `any(i -> condition, collection)` at runtime.
+- For typed domains (e.g. `x::Real`), evaluated symbolically by Lean 4 and SMT solvers.
+"""
+macro exists(binding, cond)
+    if binding isa Expr && binding.head == :call && binding.args[1] in (:in, :∈)
+        var = binding.args[2]
+        coll = binding.args[3]
+        return :(any($(esc(var)) -> $(esc(cond)), $(esc(coll))))
+    elseif binding isa Expr && (binding.head == :comparison || binding.head == :in)
+        var = binding.args[1]
+        coll = binding.args[end]
+        return :(any($(esc(var)) -> $(esc(cond)), $(esc(coll))))
+    else
+        return :(true)
+    end
+end
 
 """
     requires(condition::Bool, msg::AbstractString="")

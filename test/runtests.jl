@@ -1,0 +1,129 @@
+# JuLean.jl - Test Suite
+
+using Test
+using JuLean
+
+@testset "JuLean.jl Formal Verification Test Suite" begin
+
+    @testset "1. Logical Implication Operators" begin
+        @test implies(true, true) == true
+        @test implies(true, false) == false
+        @test implies(false, true) == true
+        @test implies(false, false) == true
+
+        # Infix operator tests
+        @test (true ⟹ true) == true
+        @test (true ⟹ false) == false
+        @test (false ⟹ true) == true
+        @test (false ⟹ false) == true
+
+        @test (true --> true) == true
+        @test (true --> false) == false
+    end
+
+    @testset "2. Runtime Design-by-Contract (@contract)" begin
+        @contract function compute_discount(price::Real, rate::Real)::Real
+            @requires price >= 0 "Price must be non-negative"
+            @requires 0 <= rate <= 1 "Rate must be in [0, 1]"
+            @ensures 0 <= result <= price
+            return price * (1 - rate)
+        end
+
+        # Valid inputs
+        @test compute_discount(100.0, 0.2) ≈ 80.0
+        @test compute_discount(0.0, 0.5) ≈ 0.0
+
+        # Precondition failure: negative price
+        @test_throws ContractViolationError compute_discount(-10.0, 0.2)
+
+        # Precondition failure: invalid rate
+        @test_throws ContractViolationError compute_discount(100.0, 1.5)
+
+        # Contracts toggle: disable runtime checks
+        disable_contracts!()
+        @test compute_discount(-10.0, 2.0) ≈ -10.0 * (1 - 2.0)
+        enable_contracts!(true)
+        @test_throws ContractViolationError compute_discount(-10.0, 0.2)
+    end
+
+    @testset "3. Lean 4 AST Types & Code Generation" begin
+        # Type generation
+        @test to_lean(LeanNat()) == "Nat"
+        @test to_lean(LeanInt()) == "Int"
+        @test to_lean(LeanRat()) == "ℚ"
+        @test to_lean(LeanArray(LeanRat())) == "Array (ℚ)"
+        @test to_lean(LeanFinset(LeanNat())) == "Finset (Nat)"
+
+        # Expression generation
+        e_add = LeanBinOp(:+, LeanVar("x"), LeanLitRat(BigInt(1), BigInt(2)))
+        @test to_lean(e_add) == "x + (1 : ℚ) / (2 : ℚ)"
+
+        # Chained comparison expression
+        comp_expr = JuLean.julia_to_lean_expr(:(lb <= x <= ub))
+        @test occursin("≤", to_lean(comp_expr))
+        @test occursin("∧", to_lean(comp_expr))
+
+        # Extensible custom type registry
+        struct MyCustomClientType end
+        register_lean_type!(MyCustomClientType, "CustomClientModel")
+        @test to_lean(julia_to_lean_type(MyCustomClientType)) == "CustomClientModel"
+    end
+
+    @testset "4. SMT-LIB2 Generation & Z3 Falsification" begin
+        @formalize function clamp_flow(f::Real, lb::Real, ub::Real)::Real
+            @requires lb <= ub
+            @ensures lb <= result <= ub
+            if f < lb
+                return lb
+            elseif f > ub
+                return ub
+            else
+                return f
+            end
+        end
+
+        # Test valid function verification via Z3
+        res_valid = JuLean.verify(:clamp_flow; backend=:Z3)
+        @test res_valid.status == StatusVerified
+        @test is_verified(res_valid)
+        @test res_valid.backend == :Z3
+
+        # Test buggy function counterexample extraction via Z3
+        @formalize function buggy_clamp(f::Real, lb::Real, ub::Real)::Real
+            @requires lb <= ub
+            @ensures lb <= result <= ub
+            # Bug: missing upper clamp
+            if f < lb
+                return lb
+            else
+                return f
+            end
+        end
+
+        res_buggy = JuLean.verify(:buggy_clamp; backend=:Z3)
+        @test res_buggy.status == StatusCounterexample
+        @test !is_verified(res_buggy)
+        @test res_buggy.counterexample !== nothing
+        @test haskey(res_buggy.counterexample, :f)
+        @test haskey(res_buggy.counterexample, :lb)
+        @test haskey(res_buggy.counterexample, :ub)
+    end
+
+    @testset "5. Lean 4 & Lake Integration Bridge" begin
+        lean_bin = JuLean.find_lean_binary()
+        @test !isempty(lean_bin)
+        @test isfile(lean_bin)
+
+        # Run direct Lean 4 snippet
+        direct_res = JuLean.run_lean("#check (42 : Nat)")
+        @test direct_res.success
+        @test direct_res.exit_code == 0
+
+        # Verify clamp_flow formal specification in Lean 4
+        res_lean = JuLean.verify(:clamp_flow; backend=:Lean4, tactic="by\n  unfold clamp_flow\n  split_ifs <;> constructor <;> linarith")
+        @test res_lean.status == StatusVerified
+        @test is_verified(res_lean)
+        @test res_lean.backend == :Lean4
+    end
+
+end

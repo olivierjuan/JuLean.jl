@@ -3,26 +3,80 @@
 using MacroTools
 
 """
+Global registry for user-defined Julia-to-Lean type mappings.
+"""
+const CUSTOM_TYPE_REGISTRY = Dict{Any, LeanType}()
+
+"""
+Global registry for formalized user structs.
+"""
+const STRUCT_REGISTRY = Dict{Symbol, LeanStructure}()
+
+"""
+    extract_struct_decl(sdef::Expr) -> LeanStructure
+
+Extracts a `LeanStructure` declaration from a Julia struct definition AST.
+"""
+function extract_struct_decl(sdef::Expr)::LeanStructure
+    name_part = sdef.args[2]
+    struct_name = name_part isa Symbol ? name_part : (name_part isa Expr ? name_part.args[1] : Symbol(string(name_part)))
+
+    body = sdef.args[3]
+    fields = Tuple{String, LeanType}[]
+
+    for stmt in body.args
+        if stmt isa LineNumberNode
+            continue
+        elseif stmt isa Symbol
+            push!(fields, (string(stmt), LeanRat()))
+        elseif stmt isa Expr && stmt.head == :(::)
+            fname = string(stmt.args[1])
+            ftype = julia_to_lean_type(stmt.args[2])
+            push!(fields, (fname, ftype))
+        end
+    end
+
+    lean_struct = LeanStructure(string(struct_name), String[], fields, "Julia struct $(struct_name)")
+    STRUCT_REGISTRY[struct_name] = lean_struct
+    register_lean_type!(struct_name, string(struct_name))
+    return lean_struct
+end
+
+"""
+    register_lean_type!(jl_type, lean_type::LeanType)
+    register_lean_type!(jl_type, lean_name::String)
+
+Registers a custom mapping from a Julia type (or Symbol) to a `LeanType`.
+Allows domain-specific packages to define their own Lean type bindings.
+"""
+function register_lean_type!(jl_type, lean_type::LeanType)
+    CUSTOM_TYPE_REGISTRY[jl_type] = lean_type
+    return lean_type
+end
+
+register_lean_type!(jl_type, lean_name::String) = register_lean_type!(jl_type, LeanNamedType(lean_name))
+
+"""
     julia_to_lean_type(jl_type) -> LeanType
 
 Maps a Julia type or type expression to the corresponding `LeanType`.
 """
 function julia_to_lean_type(t)::LeanType
+    if haskey(CUSTOM_TYPE_REGISTRY, t)
+        return CUSTOM_TYPE_REGISTRY[t]
+    end
+
     if t in (:Int, :Int64, :Int32, :Integer, Int, Int64, Int32, Integer)
         return LeanInt()
     elseif t in (:UInt, :UInt64, :UInt32, :Nat, UInt, UInt64)
         return LeanNat()
-    elseif t in (:Rational, :Rational{BigInt}, :Rational{Int}, :Rational{Int64}, Rational, Rational{BigInt})
+    elseif t in (:Rational, Rational)
         return LeanRat()
     elseif t in (:Float64, :Float32, :Real, Float64, Float32, Real)
-        # For formal verification of optimization problems (e.g. Dunes/Sirocco exact certificates),
-        # Real/Rational are represented as exact ℚ
         return LeanRat()
     elseif t in (:Bool, Bool)
         return LeanBool()
-    elseif t in (:String, String)
-        return LeanString()
-    elseif t in (:Symbol, Symbol)
+    elseif t in (:String, String, :Symbol, Symbol)
         return LeanString()
     elseif t isa Expr && t.head == :curly
         base = t.args[1]
@@ -34,20 +88,31 @@ function julia_to_lean_type(t)::LeanType
             return LeanFinset(elem)
         elseif base == :Rational
             return LeanRat()
+        else
+            type_args = [julia_to_lean_type(a) for a in t.args[2:end]]
+            return LeanNamedType(string(base), type_args)
         end
     elseif t isa Symbol
-        s = string(t)
-        if s in ("ArcStatus", "ComponentType", "PricingRule", "SolverStatus")
-            return LeanNamedType(s)
-        elseif s in ("GMCFProblem", "Network")
-            return LeanNamedType("Network")
-        elseif s in ("RationalCertificate", "OptimalityCertificate")
-            return LeanNamedType("OptimalityCertificate")
-        else
-            return LeanNamedType(s)
-        end
+        return LeanNamedType(string(t))
     end
     return LeanRat() # default fallback for numerical optimization variables
+end
+
+"""
+Unwraps single-statement blocks and returns, discarding LineNumberNodes.
+"""
+function unwrap_ast_expr(ex)
+    if ex isa Expr && ex.head == :block
+        clean_args = filter(a -> !(a isa LineNumberNode), ex.args)
+        if isempty(clean_args)
+            return true
+        elseif length(clean_args) == 1
+            return unwrap_ast_expr(clean_args[1])
+        end
+    elseif ex isa Expr && ex.head == :return
+        return isempty(ex.args) ? true : unwrap_ast_expr(ex.args[1])
+    end
+    return ex
 end
 
 """
@@ -56,30 +121,32 @@ end
 Recursively converts a Julia expression or value into a `LeanExpr`.
 """
 function julia_to_lean_expr(ex)::LeanExpr
-    if ex isa Integer
-        return LeanLitInt(Int(ex))
-    elseif ex isa Rational
-        return LeanLitRat(BigInt(numerator(ex)), BigInt(denominator(ex)))
-    elseif ex isa AbstractFloat
+    unwrapped = unwrap_ast_expr(ex)
+
+    if unwrapped isa Integer
+        return LeanLitInt(Int(unwrapped))
+    elseif unwrapped isa Rational
+        return LeanLitRat(BigInt(numerator(unwrapped)), BigInt(denominator(unwrapped)))
+    elseif unwrapped isa AbstractFloat
         # Check if float is an exact integer/fraction
-        r = rationalize(BigInt, ex)
+        r = rationalize(BigInt, unwrapped)
         if denominator(r) == 1
             return LeanLitRat(numerator(r), 1)
         else
             return LeanLitRat(numerator(r), denominator(r))
         end
-    elseif ex isa Bool
-        return LeanLitBool(ex)
-    elseif ex isa AbstractString
-        return LeanLitString(String(ex))
-    elseif ex isa Symbol
-        return LeanVar(string(ex))
-    elseif !(ex isa Expr)
-        return LeanRawExpr(string(ex))
+    elseif unwrapped isa Bool
+        return LeanLitBool(unwrapped)
+    elseif unwrapped isa AbstractString
+        return LeanLitString(String(unwrapped))
+    elseif unwrapped isa Symbol
+        return LeanVar(string(unwrapped))
+    elseif !(unwrapped isa Expr)
+        return LeanRawExpr(string(unwrapped))
     end
 
     # Expr handling
-    e = ex::Expr
+    e = unwrapped::Expr
 
     # Ignore LineNumberNodes inside blocks
     if e.head == :block
@@ -98,7 +165,7 @@ function julia_to_lean_expr(ex)::LeanExpr
         var_name = string(e.args[1])
         val = julia_to_lean_expr(e.args[2])
         return LeanLet(var_name, val, LeanVar(var_name))
-    elseif e.head == :if
+    elseif e.head in (:if, :elseif)
         cond = julia_to_lean_expr(e.args[1])
         then_b = julia_to_lean_expr(e.args[2])
         else_b = length(e.args) >= 3 ? julia_to_lean_expr(e.args[3]) : LeanLitBool(true)
@@ -128,9 +195,51 @@ function julia_to_lean_expr(ex)::LeanExpr
         left = julia_to_lean_expr(e.args[1])
         right = julia_to_lean_expr(e.args[2])
         return LeanBinOp(:→, left, right)
+    elseif e.head == :macrocall
+        return translate_lean_macro(e)
     else
         return LeanRawExpr(string(ex))
     end
+end
+
+"""
+Translates supported macros (like @forall, @exists) into Lean quantifier expressions.
+"""
+function translate_lean_macro(e::Expr)::LeanExpr
+    mname = e.args[1]
+    sym = mname isa Symbol ? mname : (mname isa GlobalRef ? mname.name : nothing)
+    clean_args = filter(a -> !(a isa LineNumberNode), e.args[2:end])
+
+    if sym in (Symbol("@forall"), Symbol("@exists")) && length(clean_args) >= 2
+        binding = clean_args[1]
+        cond_expr = julia_to_lean_expr(clean_args[2])
+        is_forall = (sym == Symbol("@forall"))
+
+        # Form: i in a:b
+        if binding isa Expr && binding.head == :call && binding.args[1] in (:in, :∈) && length(binding.args) == 3
+            var_name = string(binding.args[2])
+            rng = binding.args[3]
+            if rng isa Expr && rng.head == :call && rng.args[1] == :(:) && length(rng.args) == 3
+                a_expr = julia_to_lean_expr(rng.args[2])
+                b_expr = julia_to_lean_expr(rng.args[3])
+                v_expr = LeanVar(var_name)
+                bounds = LeanBinOp(:∧, LeanBinOp(:<=, a_expr, v_expr), LeanBinOp(:<=, v_expr, b_expr))
+                inner = is_forall ? LeanBinOp(:→, bounds, cond_expr) : LeanBinOp(:∧, bounds, cond_expr)
+                return is_forall ? LeanForall(var_name, LeanNat(), inner) : LeanExists(var_name, LeanNat(), inner)
+            else
+                return is_forall ? LeanForall(var_name, LeanNat(), cond_expr) : LeanExists(var_name, LeanNat(), cond_expr)
+            end
+        elseif binding isa Expr && binding.head == :(::)
+            var_name = string(binding.args[1])
+            var_type = julia_to_lean_type(binding.args[2])
+            return is_forall ? LeanForall(var_name, var_type, cond_expr) : LeanExists(var_name, var_type, cond_expr)
+        elseif binding isa Symbol
+            var_name = string(binding)
+            return is_forall ? LeanForall(var_name, LeanRat(), cond_expr) : LeanExists(var_name, LeanRat(), cond_expr)
+        end
+    end
+
+    return LeanRawExpr(string(e))
 end
 
 """
@@ -193,6 +302,12 @@ function translate_call(args::Vector{Any})::LeanExpr
     end
 
     # Standard function application
+    if fn_sym !== nothing && haskey(STRUCT_REGISTRY, fn_sym)
+        return LeanApp(LeanVar("$(fn_sym).mk"), [julia_to_lean_expr(a) for a in args[2:end]])
+    elseif fn_sym in (:length, :size) && length(args) == 2
+        return LeanFieldAccess(julia_to_lean_expr(args[2]), "size")
+    end
+
     lean_fn = julia_to_lean_expr(fn)
     lean_args = [julia_to_lean_expr(a) for a in args[2:end]]
     return LeanApp(lean_fn, lean_args)
@@ -251,6 +366,10 @@ function substitute_var(e::LeanExpr, old_name::String, replacement::LeanExpr)::L
         return LeanFieldAccess(substitute_var(e.obj, old_name, replacement), e.field)
     elseif e isa LeanIndexAccess
         return LeanIndexAccess(substitute_var(e.collection, old_name, replacement), substitute_var(e.index, old_name, replacement))
+    elseif e isa LeanForall
+        return e.var == old_name ? e : LeanForall(e.var, e.type, substitute_var(e.body, old_name, replacement))
+    elseif e isa LeanExists
+        return e.var == old_name ? e : LeanExists(e.var, e.type, substitute_var(e.body, old_name, replacement))
     else
         return e
     end
@@ -304,7 +423,7 @@ function transpile_to_lean_decl(spec::FormalSpecification; tactic::String="")
     end
 
     default_tactic = if isempty(tactic)
-        "by\n  unfold $(fn_name)\n  first | linarith | omega | decide | rfl | sorry"
+        "by\n  unfold $(fn_name)\n  try (split_ifs <;> try constructor <;> try linarith <;> try omega <;> try decide <;> try rfl)\n  first | linarith | omega | decide | rfl | sorry"
     else
         tactic
     end

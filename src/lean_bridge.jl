@@ -54,28 +54,58 @@ function find_lake_binary()::String
 end
 
 """
-    find_formalization_dir() -> String
-
-Finds the DunesLean formalization project directory if available.
+Global override for target Lean 4 project directory.
 """
-function find_formalization_dir()::String
+const DEFAULT_LEAN_PROJECT_DIR = Ref{String}("")
+
+"""
+    set_lean_project_dir!(dir::String)
+
+Sets the global default Lean 4 project directory for Lake builds and verification runs.
+"""
+function set_lean_project_dir!(dir::String)
+    DEFAULT_LEAN_PROJECT_DIR[] = dir
+    return dir
+end
+
+"""
+    find_lean_project_dir() -> String
+
+Discovers an available Lean 4 / Lake project directory for imports and environment.
+Checks `DEFAULT_LEAN_PROJECT_DIR`, environment variables, current directory, and standard paths.
+"""
+function find_lean_project_dir()::String
+    if !isempty(DEFAULT_LEAN_PROJECT_DIR[]) && isdir(DEFAULT_LEAN_PROJECT_DIR[])
+        return DEFAULT_LEAN_PROJECT_DIR[]
+    end
+    if haskey(ENV, "LEAN_PROJECT_DIR") && isdir(ENV["LEAN_PROJECT_DIR"])
+        return ENV["LEAN_PROJECT_DIR"]
+    end
+    if haskey(ENV, "LAKE_PROJECT_DIR") && isdir(ENV["LAKE_PROJECT_DIR"])
+        return ENV["LAKE_PROJECT_DIR"]
+    end
     candidates = [
-        "/home/D01856/dunes_lean4/formalization",
-        joinpath(dirname(dirname(@__DIR__)), "formalization"),
-        joinpath(dirname(dirname(@__DIR__)), "dunes_lean4", "formalization"),
+        pwd(),
         joinpath(pwd(), "formalization"),
-        joinpath(pwd(), "dunes_lean4", "formalization")
+        joinpath(pwd(), "lean"),
+        joinpath(pwd(), "..", "formalization"),
+        joinpath(dirname(dirname(@__DIR__)), "formalization"),
+        "/home/D01856/dunes/formalization",
+        "/home/D01856/dunes_lean4/formalization"
     ]
     for c in candidates
-        if isdir(c) && isfile(joinpath(c, "lakefile.toml"))
+        if isdir(c) && (isfile(joinpath(c, "lakefile.toml")) || isfile(joinpath(c, "lakefile.lean")))
             return c
         end
     end
     return ""
 end
 
+# Backwards compatibility alias
+const find_formalization_dir = find_lean_project_dir
+
 """
-    run_lean(code::String; project_dir=find_formalization_dir(),
+    run_lean(code::String; project_dir=find_lean_project_dir(),
                            imports=["Mathlib.Tactic"],
                            set_options=["linter.unusedVariables false", "linter.unusedSectionVars false"],
                            timeout=60.0) -> LeanRunResult
@@ -83,7 +113,7 @@ end
 Runs the Lean 4 compiler on the provided Lean code string and returns the result.
 """
 function run_lean(code::String;
-                  project_dir::String=find_formalization_dir(),
+                  project_dir::String=find_lean_project_dir(),
                   imports::Vector{String}=String["Mathlib.Tactic"],
                   set_options::Vector{String}=String["linter.unusedVariables false", "linter.unusedSectionVars false"],
                   timeout::Float64=60.0)::LeanRunResult
@@ -110,7 +140,7 @@ function run_lean(code::String;
 
     write(temp_file, full_source)
 
-    cmd = if !isempty(project_dir) && !isempty(lake_bin) && isfile(joinpath(project_dir, "lakefile.toml"))
+    cmd = if !isempty(project_dir) && !isempty(lake_bin) && (isfile(joinpath(project_dir, "lakefile.toml")) || isfile(joinpath(project_dir, "lakefile.lean")))
         `$lake_bin -d $project_dir env $lean_bin $temp_file`
     else
         `$lean_bin $temp_file`
@@ -119,28 +149,28 @@ function run_lean(code::String;
     t0 = time()
     out_pipe = Pipe()
     err_pipe = Pipe()
-    proc = run(pipeline(cmd, stdout=out_pipe, stderr=err_pipe), wait=false)
-
-    # Read output asynchronously
-    out_task = @async String(read(out_pipe))
-    err_task = @async String(read(err_pipe))
+    proc = run(pipeline(ignorestatus(cmd), stdout=out_pipe, stderr=err_pipe), wait=false)
 
     # Wait with timeout
     start_time = time()
     while process_running(proc) && (time() - start_time < timeout)
-        sleep(0.05)
+        sleep(0.02)
     end
 
     if process_running(proc)
         kill(proc)
+        close(out_pipe.in)
+        close(err_pipe.in)
         rm(temp_file, force=true)
         return LeanRunResult(false, -1, "", "Lean 4 process timed out after $(timeout)s", ["Timeout"], String[], time() - t0)
     end
 
     wait(proc)
+    close(out_pipe.in)
+    close(err_pipe.in)
     elapsed = time() - t0
-    stdout_str = fetch(out_task)
-    stderr_str = fetch(err_task)
+    stdout_str = String(read(out_pipe))
+    stderr_str = String(read(err_pipe))
     exit_code = proc.exitcode
 
     rm(temp_file, force=true)
