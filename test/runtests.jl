@@ -266,4 +266,20 @@ using JuLean
         @test_throws ContractViolationError faulty_loop(3)
     end
 
+    @testset "12. Bounded Model Checking (BMC) for Loops" begin
+        # Valid loop BMC verification
+        res_bmc = JuLean.verify(:loop_sum; backend=:BMC, depth=3)
+        @test res_bmc.status == StatusVerified
+        @test is_verified(res_bmc)
+        @test res_bmc.backend == :BMC
+
+        # Faulty loop BMC counterexample detection
+        res_faulty = JuLean.verify(:faulty_loop; backend=:BMC, depth=1)
+        @test res_faulty.status == StatusCounterexample
+        @test !is_verified(res_faulty)
+        @test res_faulty.counterexample !== nothing
+        @test haskey(res_faulty.counterexample, :s_1)
+        @test res_faulty.counterexample[:s_1] == -1
+    end
+
 end

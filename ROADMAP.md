@@ -109,6 +109,7 @@ To ensure clean modularity and reusability, responsibilities are strictly separa
 | **Verification** | Inductive Loop Verification | **P0** | Completed | Extracts and enforces loop invariants (`@invariant`) at runtime and exports inductive VCs. |
 | **Verification** | Automated Tactic Synthesis (`synthesize_tactic`) | **P0** | Completed | Heuristic proof script generator adapting to specification shapes, branches, and quantifiers. |
 | **SMT Backend** | Minimal Unsat-Core Extraction (Z3) | **P0** | Completed | Automatic extraction of essential preconditions with named assertion tracking in SMT-LIB2. |
+| **Verification** | Bounded Model Checking (BMC) for Loops | **P0** | Completed | Unrolls while/for loops to depth $k$ in SMT to verify invariant preservation and detect step bugs. |
 | **Metatheory** | Equality Saturation Extension | **P2** | Future | Optional package extension (`JuLeanMetatheoryExt`) for algebraic simplification via E-graphs. |
 | **CI / CD** | Automated Continuous Verification | **P1** | Planned | GitLab CI integration validating that all annotated functions verify against Lean 4 and Z3. |
 
@@ -134,12 +135,12 @@ To ensure clean modularity and reusability, responsibilities are strictly separa
 - [x] Add quantifier macros (`@forall`, `@exists`) for expressive specifications over collections and types.
 - [x] Implement inductive loop contract synthesis: extract `@invariant` across `while` and `for` loops.
 
-### Phase 3: Advanced Verification Tactics & Counterexample Analysis (v0.3.0) — *Current Phase (In Progress)*
+### Phase 3: Advanced Verification Tactics & Counterexample Analysis (v0.3.0) — *Completed*
 - [x] Automated tactic heuristic selector: intelligent proof script generator adapting to branch splits, quantifiers, and arithmetic.
 - [x] Unsat-core extraction in Z3: report the minimal set of preconditions required for validity.
-- [ ] Bounded model checking for loop invariants using SMT unrolling.
+- [x] Bounded model checking for loop invariants using SMT unrolling (`verify_bmc`).
 
-### Phase 4: Bi-directional Certified Synthesis & Tooling (v1.0.0)
+### Phase 4: Bi-directional Certified Synthesis & Tooling (v1.0.0) — *Current Phase (Next)*
 - [ ] Optional E-graph rewrites via extension (`Metatheory.jl`) for non-linear algebraic canonicalization.
 - [ ] Bidirectional verification: export verified Lean 4 lemmas back into certified Julia code comments or assertions.
 - [ ] Continuous formal verification in CI pipeline (`.gitlab-ci.yml`).

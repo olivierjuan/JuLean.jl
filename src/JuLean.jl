@@ -18,6 +18,7 @@ include("transpiler/printer.jl")
 # SMT / Z3 backend
 include("smt/smt_printer.jl")
 include("smt/z3_bridge.jl")
+include("smt/bmc.jl")
 
 # Global specification registry for formalized functions
 const SPEC_REGISTRY = Dict{Symbol, FormalSpecification}()
@@ -77,9 +78,11 @@ Verifies a `FormalSpecification` using the designated backend:
 - `:Z3`: Rapid automated falsification and counterexample check via Z3 SMT solver.
 - `:Lean4`: Mechanized proof verification using Lean 4 and Mathlib.
 """
-function verify(spec::FormalSpecification; backend::Symbol=:Z3, timeout::Float64=30.0, tactic::String="", logic::String="")::VerificationResult
+function verify(spec::FormalSpecification; backend::Symbol=:Z3, timeout::Float64=30.0, tactic::String="", logic::String="", depth::Int=3)::VerificationResult
     if backend == :Z3
         return verify_with_z3(spec; logic=logic, timeout=timeout)
+    elseif backend == :BMC
+        return verify_bmc(spec; depth=depth, logic=(isempty(logic) ? "ALL" : logic), timeout=timeout)
     elseif backend == :Lean4
         lean_def, lean_thm = transpile_to_lean_decl(spec; tactic=tactic)
         struct_decls = [to_lean(s) for s in values(STRUCT_REGISTRY)]
@@ -229,6 +232,9 @@ export
     # SMT & Z3 Backend
     generate_smtlib_query,
     verify_with_z3,
+    verify_bmc,
+    LoopDescriptor,
+    extract_loop_descriptor,
     run_z3
 
 end # module JuLean
