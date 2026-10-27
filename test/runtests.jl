@@ -282,4 +282,27 @@ using JuLean
         @test res_faulty.counterexample[:s_1] == -1
     end
 
+    @testset "13. Standalone Lean 4 File Export & Summary" begin
+        tmp_lean = tempname() * ".lean"
+        exported = export_lean_file(tmp_lean; fns=[:span, :auto_proved_span])
+        @test isfile(tmp_lean)
+        @test occursin("import Mathlib.Tactic", exported)
+        @test occursin("structure Interval", exported)
+        @test occursin("def span", exported)
+        @test occursin("theorem span_spec", exported)
+
+        # Ensure the exported standalone file compiles cleanly in Lean 4
+        res_run = run_lean(exported)
+        @test res_run.success
+        @test res_run.exit_code == 0
+        @test isempty(res_run.errors)
+        rm(tmp_lean)
+
+        # Verification summary output
+        summary_str = verification_summary()
+        @test occursin("JuLean.jl — Registered Formal Specifications Summary", summary_str)
+        @test occursin("span", summary_str)
+        @test occursin("clamp_flow", summary_str)
+    end
+
 end

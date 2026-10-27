@@ -125,14 +125,18 @@ function run_lean(code::String;
     end
 
     # Construct complete source code
-    import_lines = join(["import $imp" for imp in imports], "\n")
-    option_lines = join(["set_option $opt" for opt in set_options], "\n")
-    full_source = """
-    $import_lines
-    $option_lines
+    full_source = if occursin("import ", code)
+        code
+    else
+        import_lines = join(["import $imp" for imp in imports], "\n")
+        option_lines = join(["set_option $opt" for opt in set_options], "\n")
+        """
+        $import_lines
+        $option_lines
 
-    $code
-    """
+        $code
+        """
+    end
 
     # Determine execution directory and command
     target_dir = isempty(project_dir) ? mktempdir() : project_dir

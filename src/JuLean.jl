@@ -20,6 +20,9 @@ include("smt/smt_printer.jl")
 include("smt/z3_bridge.jl")
 include("smt/bmc.jl")
 
+# Lean 4 & certified artifact export
+include("export.jl")
+
 # Global specification registry for formalized functions
 const SPEC_REGISTRY = Dict{Symbol, FormalSpecification}()
 
@@ -235,6 +238,10 @@ export
     verify_bmc,
     LoopDescriptor,
     extract_loop_descriptor,
-    run_z3
+    run_z3,
+
+    # Export & Artifacts
+    export_lean_file,
+    verification_summary
 
 end # module JuLean

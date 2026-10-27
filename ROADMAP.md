@@ -110,8 +110,10 @@ To ensure clean modularity and reusability, responsibilities are strictly separa
 | **Verification** | Automated Tactic Synthesis (`synthesize_tactic`) | **P0** | Completed | Heuristic proof script generator adapting to specification shapes, branches, and quantifiers. |
 | **SMT Backend** | Minimal Unsat-Core Extraction (Z3) | **P0** | Completed | Automatic extraction of essential preconditions with named assertion tracking in SMT-LIB2. |
 | **Verification** | Bounded Model Checking (BMC) for Loops | **P0** | Completed | Unrolls while/for loops to depth $k$ in SMT to verify invariant preservation and detect step bugs. |
+| **Tooling** | Standalone Lean 4 Code Exporter | **P0** | Completed | Serializes all registered structs, definitions, and theorems to compilable Lean files (`export_lean_file`). |
+| **Tooling** | Verification Summary Reporter | **P0** | Completed | Generates formatted overview tables (`verification_summary`) of contract counts and specification types. |
+| **CI / CD** | Automated Continuous Verification | **P0** | Completed | GitLab CI pipeline (`.gitlab-ci.yml`) validating that all annotated functions verify against Lean 4 and Z3. |
 | **Metatheory** | Equality Saturation Extension | **P2** | Future | Optional package extension (`JuLeanMetatheoryExt`) for algebraic simplification via E-graphs. |
-| **CI / CD** | Automated Continuous Verification | **P1** | Planned | GitLab CI integration validating that all annotated functions verify against Lean 4 and Z3. |
 
 ---
 
@@ -140,8 +142,8 @@ To ensure clean modularity and reusability, responsibilities are strictly separa
 - [x] Unsat-core extraction in Z3: report the minimal set of preconditions required for validity.
 - [x] Bounded model checking for loop invariants using SMT unrolling (`verify_bmc`).
 
-### Phase 4: Bi-directional Certified Synthesis & Tooling (v1.0.0) — *Current Phase (Next)*
+### Phase 4: Bi-directional Certified Synthesis & Tooling (v1.0.0) — *Current Phase (In Progress)*
+- [x] Bidirectional verification: export verified Lean 4 definitions, theorems, and structures into standalone compilable Lean files (`export_lean_file`).
+- [x] Continuous formal verification in CI pipeline (`.gitlab-ci.yml`).
 - [ ] Optional E-graph rewrites via extension (`Metatheory.jl`) for non-linear algebraic canonicalization.
-- [ ] Bidirectional verification: export verified Lean 4 lemmas back into certified Julia code comments or assertions.
-- [ ] Continuous formal verification in CI pipeline (`.gitlab-ci.yml`).
 - [ ] Complete documentation site generated with Documenter.jl.
