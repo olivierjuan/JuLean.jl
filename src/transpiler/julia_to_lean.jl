@@ -422,8 +422,49 @@ function transpile_to_lean_decl(spec::FormalSpecification; tactic::String="")
         res
     end
 
+"""
+    has_branching(ex) -> Bool
+
+Checks whether an AST contains conditional expressions (if, elseif).
+"""
+function has_branching(ex)::Bool
+    if ex isa Expr
+        if ex.head in (:if, :elseif)
+            return true
+        end
+        return any(has_branching, ex.args)
+    end
+    return false
+end
+
+"""
+    synthesize_tactic(spec::FormalSpecification) -> String
+
+Generates an automated, intelligent Lean 4 tactic script matching the specification shape:
+- If quantifiers are present: introduces variables (`intros`).
+- If branching (`if` / `elseif`) is present: splits conditionals (`split_ifs`) and solves branches.
+- Solves goals via `linarith`, `omega`, `decide`, or `rfl`.
+"""
+function synthesize_tactic(spec::FormalSpecification)::String
+    lines = String["by", "  unfold $(spec.name)"]
+
+    has_branch = has_branching(spec.body)
+    has_quant = any(e -> (e isa Expr && (e.head == :macrocall || occursin("forall", string(e)))), spec.postconditions)
+
+    if has_quant
+        push!(lines, "  try (intros)")
+    end
+
+    if has_branch
+        push!(lines, "  try (split_ifs <;> try constructor <;> try linarith <;> try omega <;> try decide <;> try rfl)")
+    end
+
+    push!(lines, "  first | linarith | omega | decide | rfl | aesop | sorry")
+    return join(lines, "\n")
+end
+
     default_tactic = if isempty(tactic)
-        "by\n  unfold $(fn_name)\n  try (split_ifs <;> try constructor <;> try linarith <;> try omega <;> try decide <;> try rfl)\n  first | linarith | omega | decide | rfl | sorry"
+        synthesize_tactic(spec)
     else
         tactic
     end

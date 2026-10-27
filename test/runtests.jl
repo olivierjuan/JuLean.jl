@@ -200,4 +200,70 @@ using JuLean
         @test !is_verified(res_buggy)
     end
 
+    @testset "9. Z3 Unsat-Core Minimal Precondition Extraction" begin
+        @formalize function strict_positive(x::Real)::Real
+            @requires x > 10.0            # Essential
+            @requires x > -100.0          # Redundant
+            @requires -500.0 < x          # Redundant
+            @ensures result > 5.0
+            return x + 1.0
+        end
+
+        res = JuLean.verify(:strict_positive; backend=:Z3)
+        @test res.status == StatusVerified
+        @test is_verified(res)
+        @test !isempty(res.unsat_core)
+        @test "pre_1" in res.unsat_core
+        @test !("pre_2" in res.unsat_core)
+        @test !("pre_3" in res.unsat_core)
+    end
+
+    @testset "10. Automated Proof Tactic Synthesis" begin
+        # Verify function without supplying explicit `tactic` kwarg
+        @formalize function auto_proved_span(iv::Interval)::Real
+            @requires iv.lo <= iv.hi
+            @ensures result >= 0
+            return iv.hi - iv.lo
+        end
+
+        res_auto = JuLean.verify(:auto_proved_span; backend=:Lean4)
+        @test res_auto.status == StatusVerified
+        @test is_verified(res_auto)
+        @test occursin("linarith", res_auto.lean_code)
+    end
+
+    @testset "11. Inductive Loop Invariants (@invariant)" begin
+        @formalize function loop_sum(n::Int)::Int
+            @requires n >= 0
+            @ensures result >= 0
+            s = 0
+            i = 0
+            while i < n
+                @invariant s >= 0 && i >= 0
+                s = s + i
+                i = i + 1
+            end
+            return s
+        end
+
+        spec = JuLean.SPEC_REGISTRY[:loop_sum]
+        @test !isempty(spec.invariants)
+        @test loop_sum(5) == 10
+
+        # Test runtime invariant violation interception
+        @formalize function faulty_loop(n::Int)::Int
+            @requires n >= 0
+            s = 0
+            i = 0
+            while i < n
+                @invariant s >= 0
+                s = s - 1 # breaks invariant
+                i = i + 1
+            end
+            return s
+        end
+
+        @test_throws ContractViolationError faulty_loop(3)
+    end
+
 end

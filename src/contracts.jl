@@ -214,6 +214,21 @@ function extract_contracts(body::Expr)
                     push!(invariants, stmt.args[2])
                     extracted = true
                 end
+            # Loops: extract nested @invariant while leaving loop intact in clean_stmts
+            elseif stmt.head in (:while, :for) && length(stmt.args) >= 2
+                loop_block = stmt.args[2]
+                inner_stmts = loop_block isa Expr && loop_block.head == :block ? loop_block.args : Any[loop_block]
+                for is in inner_stmts
+                    if is isa Expr && is.head == :macrocall && length(is.args) >= 3
+                        mname = is.args[1]
+                        sym = mname isa Symbol ? mname : (mname isa GlobalRef ? mname.name : nothing)
+                        if sym == Symbol("@invariant")
+                            push!(invariants, is.args[3])
+                        end
+                    elseif is isa Expr && is.head == :call && length(is.args) >= 2 && is.args[1] == :invariant
+                        push!(invariants, is.args[2])
+                    end
+                end
             end
         end
 

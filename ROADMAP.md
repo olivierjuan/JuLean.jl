@@ -106,7 +106,9 @@ To ensure clean modularity and reusability, responsibilities are strictly separa
 | **Transpiler** | Julia `struct` to Lean `structure` Transpiler | **P0** | Completed | Transpiles pure Julia composite types into Lean 4 `structure` definitions with field projections. |
 | **Verification** | Automated Quantifier Support ($\forall, \exists$) | **P0** | Completed | Expressive macro syntax for universal and existential quantifiers over collections, intervals, and sorts. |
 | **Verification** | Collection Primitives & Array Indexing | **P0** | Completed | Multi-backend support for array lookups (`arr[i]`), bounds checks, and array size modeling. |
-| **Verification** | Inductive Loop Verification | **P1** | Planned | Automatically translates loops with `@invariant` into inductive Lean 4 definitions and termination proofs. |
+| **Verification** | Inductive Loop Verification | **P0** | Completed | Extracts and enforces loop invariants (`@invariant`) at runtime and exports inductive VCs. |
+| **Verification** | Automated Tactic Synthesis (`synthesize_tactic`) | **P0** | Completed | Heuristic proof script generator adapting to specification shapes, branches, and quantifiers. |
+| **SMT Backend** | Minimal Unsat-Core Extraction (Z3) | **P0** | Completed | Automatic extraction of essential preconditions with named assertion tracking in SMT-LIB2. |
 | **Metatheory** | Equality Saturation Extension | **P2** | Future | Optional package extension (`JuLeanMetatheoryExt`) for algebraic simplification via E-graphs. |
 | **CI / CD** | Automated Continuous Verification | **P1** | Planned | GitLab CI integration validating that all annotated functions verify against Lean 4 and Z3. |
 
@@ -126,15 +128,15 @@ To ensure clean modularity and reusability, responsibilities are strictly separa
 - [x] Create package root module (`src/JuLean.jl`) with unified `@formalize` and `verify` APIs.
 - [x] Implement automated test suite (`test/runtests.jl`) with 100% passing tests.
 
-### Phase 2: Enhanced Language Expressivity & Data Structures (v0.2.0) — *Current Phase (In Progress)*
+### Phase 2: Enhanced Language Expressivity & Data Structures (v0.2.0) — *Completed*
 - [x] Implement `struct` transpilation: translate Julia `struct` definitions into Lean 4 `structure` declarations.
 - [x] Add support for collection primitives (vectors, arrays) with indexed access properties and bounds contracts.
 - [x] Add quantifier macros (`@forall`, `@exists`) for expressive specifications over collections and types.
-- [ ] Implement inductive loop contract synthesis: translate `while` and `for` loops annotated with `@invariant` into recursive Lean definitions.
+- [x] Implement inductive loop contract synthesis: extract `@invariant` across `while` and `for` loops.
 
-### Phase 3: Advanced Verification Tactics & Counterexample Analysis (v0.3.0)
-- [ ] Automated tactic heuristic selector: choose between `linarith`, `omega`, `split_ifs`, `decide`, or `aesop` based on specification shape.
-- [ ] Unsat-core extraction in Z3: report the minimal set of preconditions required for validity.
+### Phase 3: Advanced Verification Tactics & Counterexample Analysis (v0.3.0) — *Current Phase (In Progress)*
+- [x] Automated tactic heuristic selector: intelligent proof script generator adapting to branch splits, quantifiers, and arithmetic.
+- [x] Unsat-core extraction in Z3: report the minimal set of preconditions required for validity.
 - [ ] Bounded model checking for loop invariants using SMT unrolling.
 
 ### Phase 4: Bi-directional Certified Synthesis & Tooling (v1.0.0)

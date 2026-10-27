@@ -65,18 +65,17 @@ function julia_to_smt_expr(ex)::String
     if unwrapped isa Integer
         return unwrapped < 0 ? "(- $(abs(unwrapped)))" : string(unwrapped)
     elseif unwrapped isa Rational
-        num_str = numerator(unwrapped) < 0 ? "(- $(abs(numerator(unwrapped))))" : string(numerator(unwrapped))
-        den_str = string(denominator(unwrapped))
-        return "(/ $num_str.0 $den_str.0)"
+        num_str = numerator(unwrapped) < 0 ? "(- $(abs(numerator(unwrapped))).0)" : "$(numerator(unwrapped)).0"
+        den_str = "$(denominator(unwrapped)).0"
+        return "(/ $num_str $den_str)"
     elseif unwrapped isa AbstractFloat
         r = rationalize(BigInt, unwrapped)
         if denominator(r) == 1
-            num_str = numerator(r) < 0 ? "(- $(abs(numerator(r))))" : string(numerator(r))
-            return "$num_str.0"
+            return numerator(r) < 0 ? "(- $(abs(numerator(r))).0)" : "$(numerator(r)).0"
         else
-            num_str = numerator(r) < 0 ? "(- $(abs(numerator(r))))" : string(numerator(r))
-            den_str = string(denominator(r))
-            return "(/ $num_str.0 $den_str.0)"
+            num_str = numerator(r) < 0 ? "(- $(abs(numerator(r))).0)" : "$(numerator(r)).0"
+            den_str = "$(denominator(r)).0"
+            return "(/ $num_str $den_str)"
         end
     elseif unwrapped isa Bool
         return unwrapped ? "true" : "false"
@@ -307,12 +306,13 @@ function has_quantifier(e)::Bool
 end
 
 """
-    generate_smtlib_query(spec::FormalSpecification; logic="") -> String
+    generate_smtlib_query(spec::FormalSpecification; logic="", produce_unsat_core::Bool=true) -> String
 
 Generates a complete SMT-LIB 2.6 query file asserting the preconditions and the NEGATION
-of the postconditions. If satisfiable (`sat`), a counterexample exists.
+of the postconditions. If satisfiable (`sat`), a counterexample exists. If unsatisfiable (`unsat`),
+extracts the minimal unsat core of preconditions.
 """
-function generate_smtlib_query(spec::FormalSpecification; logic::String="")::String
+function generate_smtlib_query(spec::FormalSpecification; logic::String="", produce_unsat_core::Bool=true)::String
     has_quant = any(has_quantifier, spec.preconditions) || any(has_quantifier, spec.postconditions)
     has_arrays = any(t -> occursin("Array", julia_to_smt_type(t)), values(spec.arg_types))
     # Use ALL if structs, quantifiers, or array sorts are present, otherwise default to QF_LRA
@@ -329,6 +329,10 @@ function generate_smtlib_query(spec::FormalSpecification; logic::String="")::Str
         "(set-logic $effective_logic)",
         "(set-option :produce-models true)"
     ]
+
+    if produce_unsat_core
+        push!(lines, "(set-option :produce-unsat-cores true)")
+    end
 
     # Declare algebraic datatypes for any registered structs
     for (sname, sdecl) in STRUCT_REGISTRY
@@ -358,12 +362,20 @@ function generate_smtlib_query(spec::FormalSpecification; logic::String="")::Str
 
     # Assert function body equivalence: result = body
     body_smt = julia_to_smt_expr(spec.body)
-    push!(lines, "(assert (= result $body_smt))")
+    if produce_unsat_core
+        push!(lines, "(assert (! (= result $body_smt) :named def_body))")
+    else
+        push!(lines, "(assert (= result $body_smt))")
+    end
 
     # Assert preconditions
     for (i, pre) in enumerate(spec.preconditions)
         pre_smt = julia_to_smt_expr(pre)
-        push!(lines, "; Precondition $i\n(assert $pre_smt)")
+        if produce_unsat_core
+            push!(lines, "; Precondition $i\n(assert (! $pre_smt :named pre_$i))")
+        else
+            push!(lines, "; Precondition $i\n(assert $pre_smt)")
+        end
     end
 
     # Formulate conjunction of postconditions
@@ -382,10 +394,17 @@ function generate_smtlib_query(spec::FormalSpecification; logic::String="")::Str
 
     # Assert negation of postconditions to search for a counterexample
     push!(lines, "; Specification falsification target (not postconditions)")
-    push!(lines, "(assert (not $all_posts))")
+    if produce_unsat_core
+        push!(lines, "(assert (! (not $all_posts) :named falsify_target))")
+    else
+        push!(lines, "(assert (not $all_posts))")
+    end
 
     push!(lines, "(check-sat)")
     push!(lines, "(get-model)")
+    if produce_unsat_core
+        push!(lines, "(get-unsat-core)")
+    end
 
     return join(lines, "\n") * "\n"
 end

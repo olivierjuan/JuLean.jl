@@ -130,18 +130,43 @@ function run_z3(smt_code::String; timeout::Float64=30.0)
     stdout_str = fetch(out_task)
     stderr_str = fetch(err_task)
 
-    first_line = strip(first(split(stdout_str, "\n")))
-    status_sym = if first_line == "sat"
-        :sat
-    elseif first_line == "unsat"
-        :unsat
-    elseif first_line == "unknown"
-        :unknown
-    else
-        :error
+    status_sym = :error
+    for line in split(stdout_str, "\n")
+        s = strip(line)
+        if s == "sat"
+            status_sym = :sat
+            break
+        elseif s == "unsat"
+            status_sym = :unsat
+            break
+        elseif s == "unknown"
+            status_sym = :unknown
+            break
+        end
     end
 
     return status_sym, stdout_str, stderr_str, elapsed
+end
+
+"""
+    parse_unsat_core(out::AbstractString) -> Vector{String}
+
+Extracts named assertion labels from a Z3 `(get-unsat-core)` response.
+Filters out internal definition and target names.
+"""
+function parse_unsat_core(out::AbstractString)::Vector{String}
+    core = String[]
+    m = match(r"unsat\s*(?:\(error.*?\)\s*)*\((.*?)\)"s, out)
+    if m !== nothing
+        tokens = split(m.captures[1])
+        for tok in tokens
+            s = String(strip(tok))
+            if !(s in ("def_body", "falsify_target")) && !isempty(s)
+                push!(core, s)
+            end
+        end
+    end
+    return core
 end
 
 """
@@ -157,12 +182,14 @@ function verify_with_z3(spec::FormalSpecification; logic::String="", timeout::Fl
     status_sym, out_str, err_str, elapsed = run_z3(smt_code; timeout=timeout)
 
     if status_sym == :unsat
+        core = parse_unsat_core(out_str)
         return VerificationResult(
             spec.name,
             StatusVerified,
             :Z3;
             message="Verified: No counterexample found (unsat)",
             smt_code=smt_code,
+            unsat_core=core,
             elapsed_time=elapsed
         )
     elseif status_sym == :sat

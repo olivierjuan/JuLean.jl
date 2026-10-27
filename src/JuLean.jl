@@ -213,6 +213,7 @@ export
     LeanInductive,
     to_lean,
     transpile_to_lean_decl,
+    synthesize_tactic,
     julia_to_lean_type,
     julia_to_lean_expr,
     register_lean_type!,

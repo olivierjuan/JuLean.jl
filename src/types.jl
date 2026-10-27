@@ -78,6 +78,7 @@ struct VerificationResult
     lean_code::String
     smt_code::String
     counterexample::Union{Nothing, Dict{Symbol, Any}}
+    unsat_core::Vector{String}
     elapsed_time::Float64
 end
 
@@ -86,8 +87,9 @@ function VerificationResult(name::Symbol, status::VerificationStatus, backend::S
                             lean_code::String="",
                             smt_code::String="",
                             counterexample=nothing,
+                            unsat_core::Vector{String}=String[],
                             elapsed_time::Float64=0.0)
-    return VerificationResult(name, status, backend, message, lean_code, smt_code, counterexample, elapsed_time)
+    return VerificationResult(name, status, backend, message, lean_code, smt_code, counterexample, unsat_core, elapsed_time)
 end
 
 function is_verified(res::VerificationResult)

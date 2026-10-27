@@ -107,7 +107,7 @@ const find_formalization_dir = find_lean_project_dir
 """
     run_lean(code::String; project_dir=find_lean_project_dir(),
                            imports=["Mathlib.Tactic"],
-                           set_options=["linter.unusedVariables false", "linter.unusedSectionVars false"],
+                           set_options=["linter.unusedVariables false", "linter.unusedSectionVars false", "linter.unusedTactic false", "linter.unreachableTactic false"],
                            timeout=60.0) -> LeanRunResult
 
 Runs the Lean 4 compiler on the provided Lean code string and returns the result.
@@ -115,7 +115,7 @@ Runs the Lean 4 compiler on the provided Lean code string and returns the result
 function run_lean(code::String;
                   project_dir::String=find_lean_project_dir(),
                   imports::Vector{String}=String["Mathlib.Tactic"],
-                  set_options::Vector{String}=String["linter.unusedVariables false", "linter.unusedSectionVars false"],
+                  set_options::Vector{String}=String["linter.unusedVariables false", "linter.unusedSectionVars false", "linter.unusedTactic false", "linter.unreachableTactic false"],
                   timeout::Float64=60.0)::LeanRunResult
     lean_bin = find_lean_binary()
     lake_bin = find_lake_binary()
