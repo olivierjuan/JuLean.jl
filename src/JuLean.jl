@@ -316,33 +316,78 @@ function extract_formal_spec(func::Function, argtypes::Tuple=())::FormalSpecific
         error("No user methods found for function `$func`")
     end
     m = first(matching)
-    extracted = auto_extract_method_ast(func, m.nargs - 1)
-    if extracted === nothing
-        error("Could not extract method AST for `$func`")
+
+    file, line = Base.functionloc(m)
+    if file === nothing || !isa(file, AbstractString) || !isfile(file)
+        error("Source file not found for method $m")
     end
-    param_names, clean_body = extracted
+
+    lines = readlines(file)
+    chunk = join(lines[line:min(line + 100, length(lines))], "\n")
+    fdef, _ = Meta.parse(chunk, 1)
+
+    while fdef isa Expr && fdef.head == :macrocall
+        clean_args = filter(a -> !(a isa LineNumberNode), fdef.args[2:end])
+        fdef = clean_args[end]
+    end
+
+    if !(fdef isa Expr && fdef.head in (:function, :(=)))
+        error("Could not parse method definition for $m")
+    end
+
+    dict = MacroTools.splitdef(fdef)
+    fn_name = dict[:name]
+    args = Symbol[]
+    arg_types = Dict{Symbol, Any}()
+
+    for a in dict[:args]
+        if a isa Symbol
+            push!(args, a)
+            arg_types[a] = Real
+        elseif a isa Expr && a.head == :(::)
+            sym = a.args[1]
+            typ = a.args[2]
+            push!(args, sym)
+            arg_types[sym] = typ
+        else
+            push!(args, Symbol(string(a)))
+            arg_types[Symbol(string(a))] = Real
+        end
+    end
+
+    ret_type = get(dict, :rtype, Real)
+    if ret_type === nothing
+        ret_type = Real
+    end
 
     # Extract contracts from docstring
     doc = get_method_docstring(m)
     pre, post, inv = parse_doc_contracts(doc)
+
+    clean_body = dict[:body]
+    if clean_body isa Expr && clean_body.head == :block
+        stmts = filter(a -> !(a isa LineNumberNode), clean_body.args)
+        clean_body = length(stmts) == 1 ? stmts[1] : clean_body
+    end
+    if clean_body isa Expr && clean_body.head == :return && length(clean_body.args) == 1
+        clean_body = clean_body.args[1]
+    end
 
     clean_body = expand_inlines(clean_body)
     pre = [expand_inlines(p) for p in pre]
     post = [expand_inlines(p) for p in post]
     inv = [expand_inlines(p) for p in inv]
 
-    arg_types = Dict{Symbol, Any}(p => Real for p in param_names)
-
     return FormalSpecification(
-        m.name,
-        param_names,
+        fn_name,
+        args,
         arg_types,
-        Real,
+        ret_type,
         pre,
         post,
         inv,
         clean_body,
-        :(function $(m.name)($(param_names...)) $clean_body end),
+        fdef,
         doc
     )
 end
@@ -492,6 +537,8 @@ macro formalize(def_expr)
             func_val = $(esc(def_expr))
             spec = $(@__MODULE__).extract_formal_spec(func_val)
             $(@__MODULE__).SPEC_REGISTRY[spec.name] = spec
+            $(@__MODULE__).register_inline!(spec.name, spec.args, spec.body)
+            $(@__MODULE__).register_inline!(func_val, spec.args, spec.body)
             spec.name
         end
     end
@@ -509,6 +556,7 @@ macro formalize(def_expr)
     return quote
         $(esc(exec_expr))
         $(@__MODULE__).SPEC_REGISTRY[$(QuoteNode(fn_name))] = $(esc(spec_quote))
+        $(@__MODULE__).register_inline!($(QuoteNode(fn_name)), $(QuoteNode(spec.args)), $(QuoteNode(spec.body)))
         $(esc(fn_name))
     end
 end
