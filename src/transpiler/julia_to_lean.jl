@@ -123,7 +123,9 @@ Recursively converts a Julia expression or value into a `LeanExpr`.
 function julia_to_lean_expr(ex)::LeanExpr
     unwrapped = unwrap_ast_expr(ex)
 
-    if unwrapped isa Integer
+    if unwrapped isa Bool
+        return LeanLitBool(unwrapped)
+    elseif unwrapped isa Integer
         return LeanLitInt(Int(unwrapped))
     elseif unwrapped isa Rational
         return LeanLitRat(BigInt(numerator(unwrapped)), BigInt(denominator(unwrapped)))
@@ -135,8 +137,6 @@ function julia_to_lean_expr(ex)::LeanExpr
         else
             return LeanLitRat(numerator(r), denominator(r))
         end
-    elseif unwrapped isa Bool
-        return LeanLitBool(unwrapped)
     elseif unwrapped isa AbstractString
         return LeanLitString(String(unwrapped))
     elseif unwrapped isa Symbol

@@ -62,7 +62,9 @@ Recursively translates a Julia expression or literal into an SMT-LIB 2.6 s-expre
 function julia_to_smt_expr(ex)::String
     unwrapped = unwrap_smt_expr(ex)
 
-    if unwrapped isa Integer
+    if unwrapped isa Bool
+        return unwrapped ? "true" : "false"
+    elseif unwrapped isa Integer
         return unwrapped < 0 ? "(- $(abs(unwrapped)))" : string(unwrapped)
     elseif unwrapped isa Rational
         num_str = numerator(unwrapped) < 0 ? "(- $(abs(numerator(unwrapped))).0)" : "$(numerator(unwrapped)).0"
@@ -77,8 +79,6 @@ function julia_to_smt_expr(ex)::String
             den_str = "$(denominator(r)).0"
             return "(/ $num_str $den_str)"
         end
-    elseif unwrapped isa Bool
-        return unwrapped ? "true" : "false"
     elseif unwrapped isa Symbol
         return string(unwrapped)
     elseif !(unwrapped isa Expr)
@@ -306,6 +306,21 @@ function has_quantifier(e)::Bool
 end
 
 """
+Checks whether an expression AST contains non-linear multiplication or division between variables.
+"""
+function has_non_linear(e)::Bool
+    if e isa Expr
+        if e.head == :call && length(e.args) == 3 && e.args[1] in (:*, :/)
+            if !(e.args[2] isa Number) && !(e.args[3] isa Number)
+                return true
+            end
+        end
+        return any(has_non_linear, e.args)
+    end
+    return false
+end
+
+"""
     generate_smtlib_query(spec::FormalSpecification; logic="", produce_unsat_core::Bool=true) -> String
 
 Generates a complete SMT-LIB 2.6 query file asserting the preconditions and the NEGATION
@@ -315,11 +330,18 @@ extracts the minimal unsat core of preconditions.
 function generate_smtlib_query(spec::FormalSpecification; logic::String="", produce_unsat_core::Bool=true)::String
     has_quant = any(has_quantifier, spec.preconditions) || any(has_quantifier, spec.postconditions)
     has_arrays = any(t -> occursin("Array", julia_to_smt_type(t)), values(spec.arg_types))
-    # Use ALL if structs, quantifiers, or array sorts are present, otherwise default to QF_LRA
+    has_nonlin = has_non_linear(spec.body) || any(has_non_linear, spec.preconditions) || any(has_non_linear, spec.postconditions)
+    has_ints = any(t -> occursin("Int", julia_to_smt_type(t)), values(spec.arg_types)) || occursin("Int", julia_to_smt_type(spec.return_type))
+    has_reals = any(t -> occursin("Real", julia_to_smt_type(t)), values(spec.arg_types)) || occursin("Real", julia_to_smt_type(spec.return_type))
+    has_mixed = has_ints && has_reals
+
+    # Use ALL if structs, quantifiers, array sorts, or mixed Int/Real sorts are present
     effective_logic = if !isempty(logic)
         logic
-    elseif !isempty(STRUCT_REGISTRY) || has_quant || has_arrays
+    elseif !isempty(STRUCT_REGISTRY) || has_quant || has_arrays || has_mixed
         "ALL"
+    elseif has_nonlin
+        "QF_NRA"
     else
         "QF_LRA"
     end
