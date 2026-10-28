@@ -44,6 +44,107 @@ function simplify_expr(expr)
 end
 
 """
+    INLINE_REGISTRY
+
+Global registry mapping function identifiers (`Symbol` or `Expr`) to inlining templates
+`(args::Vector{Symbol}, body::Expr)`. Functions registered here are transparently
+inlined by JuLean's SMT and Lean 4 engines whenever called within `@formalize` specifications.
+"""
+const INLINE_REGISTRY = Dict{Any, Tuple{Vector{Symbol}, Expr}}()
+
+"""
+    register_inline!(fn_name, args::Vector{Symbol}, body::Expr)
+    register_inline!(fn_name, fdef::Expr)
+
+Registers a function or method AST to be automatically inlined inside formal specifications.
+"""
+function register_inline!(fn_name, args::Vector{Symbol}, body::Expr)
+    clean_b = body
+    if clean_b isa Expr && clean_b.head == :block
+        stmts = filter(a -> !(a isa LineNumberNode), clean_b.args)
+        clean_b = length(stmts) == 1 ? stmts[1] : clean_b
+    end
+    if clean_b isa Expr && clean_b.head == :return && length(clean_b.args) == 1
+        clean_b = clean_b.args[1]
+    end
+    INLINE_REGISTRY[fn_name] = (args, clean_b)
+end
+
+function register_inline!(fn_name, fdef::Expr)
+    dict = MacroTools.splitdef(fdef)
+    args = Symbol[a isa Symbol ? a : (a isa Expr && a.head == :(::) ? a.args[1] : Symbol(string(a))) for a in dict[:args]]
+    register_inline!(fn_name, args, dict[:body])
+end
+
+"""
+    expand_inlines(ex) -> Expr
+
+Recursively expands calls to functions registered in `INLINE_REGISTRY` by substituting
+actual arguments into the registered parameter template.
+"""
+function expand_inlines(ex)
+    !(ex isa Expr) && return ex
+
+    if ex.head == :call && length(ex.args) >= 1
+        fn = ex.args[1]
+        call_args = [expand_inlines(a) for a in ex.args[2:end]]
+
+        # Match symbol, Expr(:., ...), or function name
+        match_key = nothing
+        if haskey(INLINE_REGISTRY, fn)
+            match_key = fn
+        elseif fn isa Expr && fn.head == :. && length(fn.args) == 2
+            sym = fn.args[2] isa QuoteNode ? fn.args[2].value : fn.args[2]
+            if haskey(INLINE_REGISTRY, fn)
+                match_key = fn
+            elseif haskey(INLINE_REGISTRY, sym)
+                match_key = sym
+            end
+        end
+
+        if match_key !== nothing
+            tmpl_args, tmpl_body = INLINE_REGISTRY[match_key]
+            if length(tmpl_args) == length(call_args)
+                substs = Dict{Symbol, Any}(zip(tmpl_args, call_args))
+                replace_syms(e) = e isa Symbol ? get(substs, e, e) : (e isa Expr ? Expr(e.head, map(replace_syms, e.args)...) : e)
+                return expand_inlines(replace_syms(tmpl_body))
+            end
+        end
+
+        return Expr(:call, fn, call_args...)
+    else
+        return Expr(ex.head, [expand_inlines(a) for a in ex.args]...)
+    end
+end
+
+"""
+    @inline_formal function foo(args...) ... end
+
+Defines a Julia function and registers its AST with `JuLean` so that any call
+to `foo(...)` inside a `@formalize` kernel is automatically inlined during SMT and Lean 4
+transpilation.
+"""
+macro inline_formal(fdef)
+    dict = MacroTools.splitdef(fdef)
+    fn_name = dict[:name]
+    args = Symbol[a isa Symbol ? a : (a isa Expr && a.head == :(::) ? a.args[1] : Symbol(string(a))) for a in dict[:args]]
+    clean_b = dict[:body]
+    if clean_b isa Expr && clean_b.head == :block
+        stmts = filter(a -> !(a isa LineNumberNode), clean_b.args)
+        clean_b = length(stmts) == 1 ? stmts[1] : clean_b
+    end
+    if clean_b isa Expr && clean_b.head == :return && length(clean_b.args) == 1
+        clean_b = clean_b.args[1]
+    end
+
+    return quote
+        $(esc(fdef))
+        $(@__MODULE__).register_inline!($(QuoteNode(fn_name)), $(QuoteNode(args)), $(QuoteNode(clean_b)))
+        $(esc(fn_name))
+    end
+end
+
+"""
     extract_formal_spec(fdef::Expr) -> FormalSpecification
 
 Analyzes a Julia function definition expression, parses arguments, type annotations,
@@ -76,6 +177,12 @@ function extract_formal_spec(fdef::Expr)::FormalSpecification
     end
 
     pre, post, inv, clean_body = extract_contracts(dict[:body])
+
+    # Transparently expand registered inline functions in formal contracts and body
+    clean_body = expand_inlines(clean_body)
+    pre = [expand_inlines(p) for p in pre]
+    post = [expand_inlines(p) for p in post]
+    inv = [expand_inlines(p) for p in inv]
 
     return FormalSpecification(
         fn_name,
@@ -186,6 +293,9 @@ export
     # Contracts & DbC
     @contract,
     @formalize,
+    @inline_formal,
+    register_inline!,
+    expand_inlines,
     @requires,
     @ensures,
     @invariant,
