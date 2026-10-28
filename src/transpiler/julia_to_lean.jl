@@ -5,7 +5,14 @@ using MacroTools
 """
 Global registry for user-defined Julia-to-Lean type mappings.
 """
-const CUSTOM_TYPE_REGISTRY = Dict{Any, LeanType}()
+const CUSTOM_TYPE_REGISTRY = Dict{Any, LeanType}(
+    :PosInt => LeanPNat(),
+    :NodeId => LeanPNat(),
+    :ArcId => LeanPNat(),
+    :PNat => LeanPNat(),
+    Symbol("ℕ+") => LeanPNat(),
+    PosInt => LeanPNat()
+)
 
 """
 Global registry for formalized user structs.
@@ -66,7 +73,14 @@ function julia_to_lean_type(t)::LeanType
         return CUSTOM_TYPE_REGISTRY[t]
     end
 
-    if t in (:Int, :Int64, :Int32, :Integer, Int, Int64, Int32, Integer)
+    if t isa Expr && t.head == :. && length(t.args) == 2
+        sym = t.args[2] isa QuoteNode ? t.args[2].value : t.args[2]
+        return julia_to_lean_type(sym)
+    end
+
+    if t in (:PNat, :PosInt, :NodeId, :ArcId, :PositiveInt, Symbol("ℕ+"), PNat, PosInt)
+        return LeanPNat()
+    elseif t in (:Int, :Int64, :Int32, :Integer, Int, Int64, Int32, Integer)
         return LeanInt()
     elseif t in (:UInt, :UInt64, :UInt32, :Nat, UInt, UInt64)
         return LeanNat()
@@ -116,8 +130,49 @@ function unwrap_ast_expr(ex)
 end
 
 """
-    julia_to_lean_expr(expr, fn_args=String[], loop_vars=Set{String}(), fn_arg_types=Dict{Symbol, Any}()) -> LeanExpr
+    is_pnat_type(t) -> Bool
 
+Checks if a Julia or Lean type represents a strictly positive integer (`ℕ+` / `PNat`).
+"""
+function is_pnat_type(t)::Bool
+    t === nothing && return false
+    if t isa Expr && t.head == :. && length(t.args) == 2
+        sym = t.args[2] isa QuoteNode ? t.args[2].value : t.args[2]
+        return is_pnat_type(sym)
+    end
+    return t in (:PNat, :PosInt, :NodeId, :ArcId, :PositiveInt, Symbol("ℕ+"), PNat, PosInt, LeanPNat()) || (t isa LeanPNat)
+end
+
+"""
+    translate_1based_index(raw_idx, fn_args, loop_vars, fn_arg_types) -> LeanExpr
+
+Translates a 1-based Julia index expression into a 0-based Lean 4 index:
+- Loop variable `i` (already 0-based in Lean 4): `i`
+- Loop variable offset `i + k`: `i + k`
+- Positive integer / PNat `p`: `p.1 - 1` (pure Nat arithmetic without any .toNat cast!)
+- Integer literal `k`: `k - 1` (statically converted at transpile-time)
+- General `Int` expression `x`: `(x - 1).toNat`
+"""
+function translate_1based_index(raw_idx, fn_args::Vector{String}=String[], loop_vars::Set{String}=Set{String}(), fn_arg_types::Dict{Symbol, Any}=Dict{Symbol, Any}())::LeanExpr
+    if raw_idx isa Symbol && string(raw_idx) in loop_vars
+        return LeanVar(string(raw_idx))
+    elseif raw_idx isa Symbol && (get(fn_arg_types, raw_idx, nothing) in (:UInt, :UInt64, :UInt32, :Nat, UInt, UInt64, LeanNat()))
+        return LeanVar(string(raw_idx))
+    elseif raw_idx isa Symbol && is_pnat_type(get(fn_arg_types, raw_idx, nothing))
+        return LeanRawExpr("($(string(raw_idx)).1 - 1)")
+    elseif raw_idx isa Expr && raw_idx.head == :call && length(raw_idx.args) == 3 && raw_idx.args[1] == :+ &&
+           (raw_idx.args[2] isa Symbol && string(raw_idx.args[2]) in loop_vars)
+        offset = raw_idx.args[3]
+        return LeanBinOp(:+, LeanVar(string(raw_idx.args[2])), julia_to_lean_expr(offset, fn_args, loop_vars, fn_arg_types))
+    elseif raw_idx isa Integer
+        return raw_idx == 0 ? LeanLitInt(0) : LeanLitInt(Int(raw_idx) - 1)
+    else
+        idx_inner = to_lean(julia_to_lean_expr(raw_idx, fn_args, loop_vars, fn_arg_types))
+        return LeanRawExpr("($idx_inner - 1).toNat")
+    end
+end
+
+"""
 Recursively converts a Julia expression or value into a `LeanExpr`.
 """
 function julia_to_lean_expr(ex, fn_args::Vector{String}=String[], loop_vars::Set{String}=Set{String}(), fn_arg_types::Dict{Symbol, Any}=Dict{Symbol, Any}())::LeanExpr
@@ -185,19 +240,7 @@ function julia_to_lean_expr(ex, fn_args::Vector{String}=String[], loop_vars::Set
     elseif e.head == :ref && length(e.args) >= 2
         coll = julia_to_lean_expr(e.args[1], fn_args, loop_vars, fn_arg_types)
         raw_idx = e.args[2]
-        idx = if (raw_idx isa Symbol && string(raw_idx) in loop_vars)
-            LeanVar(string(raw_idx))
-        elseif raw_idx isa Symbol && (get(fn_arg_types, raw_idx, nothing) in (:UInt, :UInt64, :UInt32, :Nat, UInt, UInt64, LeanNat()))
-            LeanVar(string(raw_idx))
-        elseif raw_idx isa Expr && raw_idx.head == :call && length(raw_idx.args) == 3 && raw_idx.args[1] == :+ && (raw_idx.args[2] isa Symbol && string(raw_idx.args[2]) in loop_vars)
-            offset = raw_idx.args[3]
-            LeanBinOp(:+, LeanVar(string(raw_idx.args[2])), julia_to_lean_expr(offset, fn_args, loop_vars, fn_arg_types))
-        elseif raw_idx isa Integer
-            raw_idx == 0 ? LeanLitInt(0) : LeanLitInt(Int(raw_idx) - 1)
-        else
-            idx_inner = to_lean(julia_to_lean_expr(raw_idx, fn_args, loop_vars, fn_arg_types))
-            LeanRawExpr("($idx_inner - 1).toNat")
-        end
+        idx = translate_1based_index(raw_idx, fn_args, loop_vars, fn_arg_types)
         return LeanIndexAccess(coll, idx)
     elseif e.head == :call
         return translate_call(e.args, fn_args, loop_vars, fn_arg_types)
@@ -429,16 +472,7 @@ function translate_do_stmt(stmt, declared_muts::Set{String}, loop_vars::Set{Stri
     if stmt isa Expr && stmt.head == :(=) && length(stmt.args) == 2 && stmt.args[1] isa Expr && stmt.args[1].head == :ref
         arr_name = string(stmt.args[1].args[1])
         raw_idx = stmt.args[1].args[2]
-        idx_expr = if (raw_idx isa Symbol && string(raw_idx) in loop_vars)
-            julia_to_lean_expr(raw_idx, String[], loop_vars, fn_arg_types)
-        elseif raw_idx isa Symbol && (get(fn_arg_types, raw_idx, nothing) in (:UInt, :UInt64, :UInt32, :Nat, UInt, UInt64, LeanNat()))
-            LeanVar(string(raw_idx))
-        elseif raw_idx isa Integer
-            raw_idx == 0 ? LeanLitInt(0) : LeanLitInt(Int(raw_idx) - 1)
-        else
-            idx_inner = to_lean(julia_to_lean_expr(raw_idx, String[], loop_vars, fn_arg_types))
-            LeanRawExpr("($idx_inner - 1).toNat")
-        end
+        idx_expr = translate_1based_index(raw_idx, String[], loop_vars, fn_arg_types)
         val = julia_to_lean_expr(stmt.args[2], String[], loop_vars, fn_arg_types)
         return LeanDoArraySet(arr_name, idx_expr, val)
     end
@@ -447,16 +481,7 @@ function translate_do_stmt(stmt, declared_muts::Set{String}, loop_vars::Set{Stri
     if stmt isa Expr && stmt.head == :(+=) && length(stmt.args) == 2 && stmt.args[1] isa Expr && stmt.args[1].head == :ref
         arr_name = string(stmt.args[1].args[1])
         raw_idx = stmt.args[1].args[2]
-        idx_expr = if (raw_idx isa Symbol && string(raw_idx) in loop_vars)
-            julia_to_lean_expr(raw_idx, String[], loop_vars, fn_arg_types)
-        elseif raw_idx isa Symbol && (get(fn_arg_types, raw_idx, nothing) in (:UInt, :UInt64, :UInt32, :Nat, UInt, UInt64, LeanNat()))
-            LeanVar(string(raw_idx))
-        elseif raw_idx isa Integer
-            raw_idx == 0 ? LeanLitInt(0) : LeanLitInt(Int(raw_idx) - 1)
-        else
-            idx_inner = to_lean(julia_to_lean_expr(raw_idx, String[], loop_vars, fn_arg_types))
-            LeanRawExpr("($idx_inner - 1).toNat")
-        end
+        idx_expr = translate_1based_index(raw_idx, String[], loop_vars, fn_arg_types)
         old_val = LeanIndexAccess(LeanVar(arr_name), idx_expr)
         new_val = LeanBinOp(:+, old_val, julia_to_lean_expr(stmt.args[2], String[], loop_vars, fn_arg_types))
         return LeanDoArraySet(arr_name, idx_expr, new_val)
@@ -480,6 +505,23 @@ function translate_do_stmt(stmt, declared_muts::Set{String}, loop_vars::Set{Stri
     if stmt isa Expr && stmt.head == :(=) && length(stmt.args) == 2 && stmt.args[1] isa Symbol
         v_name = string(stmt.args[1])
         val = julia_to_lean_expr(stmt.args[2], String[], loop_vars, fn_arg_types)
+
+        # Track element type if reading from an array
+        if stmt.args[2] isa Expr && stmt.args[2].head == :ref && length(stmt.args[2].args) >= 2
+            arr_sym = stmt.args[2].args[1]
+            if arr_sym isa Symbol && haskey(fn_arg_types, arr_sym)
+                atyp = fn_arg_types[arr_sym]
+                if atyp isa LeanArray && atyp.elem_type isa LeanPNat
+                    fn_arg_types[Symbol(v_name)] = :PNat
+                elseif atyp isa Expr && atyp.head == :curly && atyp.args[1] in (:Vector, :Array)
+                    elem_t = atyp.args[2]
+                    if elem_t in (:PNat, :PosInt, :NodeId, :ArcId, Symbol("ℕ+"), LeanPNat(), PosInt)
+                        fn_arg_types[Symbol(v_name)] = :PNat
+                    end
+                end
+            end
+        end
+
         if v_name in declared_muts
             return LeanDoAssign(v_name, val)
         else

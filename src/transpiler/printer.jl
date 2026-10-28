@@ -8,6 +8,8 @@ Renders a `LeanType` into Lean 4 type syntax.
 function to_lean(t::LeanType)::String
     if t isa LeanNat
         return "Nat"
+    elseif t isa LeanPNat
+        return "ℕ+"
     elseif t isa LeanInt
         return "Int"
     elseif t isa LeanRat

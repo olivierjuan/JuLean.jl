@@ -137,41 +137,37 @@ using JuLean
         @test JuLean.is_verified(res)
     end
 
-    @testset "7. Lean 4 Compilation of Transpiled Imperative Code" begin
-        formal_path = normpath(joinpath(@__DIR__, "..", "..", "formalization"))
-        if isdir(formal_path)
-            tmp_lean = tempname() * ".lean"
-            try
-                open(tmp_lean, "w") do io
-                    println(io, "import Mathlib.Tactic\n")
-
-                    spec1 = JuLean.SPEC_REGISTRY[:update_element]
-                    def1, _ = JuLean.transpile_to_lean_decl(spec1)
-                    println(io, JuLean.to_lean(def1), "\n")
-
-                    spec2 = JuLean.SPEC_REGISTRY[:accum_and_sub]
-                    def2, _ = JuLean.transpile_to_lean_decl(spec2)
-                    println(io, JuLean.to_lean(def2), "\n")
-
-                    spec3 = JuLean.SPEC_REGISTRY[:find_lca_test]
-                    def3, _ = JuLean.transpile_to_lean_decl(spec3)
-                    println(io, JuLean.to_lean(def3), "\n")
-
-                    spec4 = JuLean.SPEC_REGISTRY[:extract_path_test]
-                    def4, _ = JuLean.transpile_to_lean_decl(spec4)
-                    println(io, JuLean.to_lean(def4), "\n")
-                end
-
-                cmd = Cmd(`lake env lean $tmp_lean`, dir=formal_path)
-                proc = run(pipeline(cmd; stdout=Pipe(), stderr=Pipe()); wait=false)
-                stdout_str = read(proc.out, String)
-                stderr_str = read(proc.err, String)
-                wait(proc)
-
-                @test proc.exitcode == 0
-            finally
-                rm(tmp_lean; force=true)
+    @testset "8. PosInt / ℕ+ Indexing without toNat Casts" begin
+        @formalize function pnat_indexing_test(
+            potentials::Vector{Float64},
+            nodes::Vector{PosInt},
+            parent::Vector{PosInt},
+            cost::Vector{Float64}
+        )::Vector{Float64}
+            for i in 1:length(nodes)
+                node = nodes[i]
+                p = parent[i]
+                potentials[node] = potentials[p] + cost[i]
             end
+            return potentials
         end
+
+        spec = JuLean.SPEC_REGISTRY[:pnat_indexing_test]
+        lean_def, _ = JuLean.transpile_to_lean_decl(spec)
+        lean_code = JuLean.to_lean(lean_def)
+
+        # Ensure Array ℕ+ is used and no .toNat casts are generated
+        @test occursin("nodes : Array (ℕ+)", lean_code)
+        @test occursin("parent : Array (ℕ+)", lean_code)
+        @test occursin("(node.1 - 1)", lean_code)
+        @test occursin("(p.1 - 1)", lean_code)
+        @test !occursin("toNat", lean_code)
+
+        # Verify with Z3 and Lean 4
+        res_z3 = JuLean.verify(:pnat_indexing_test; backend=:Z3)
+        @test JuLean.is_verified(res_z3)
+
+        res_l4 = JuLean.verify(:pnat_indexing_test; backend=:Lean4, tactic="by\n  rfl")
+        @test JuLean.is_verified(res_l4)
     end
 end

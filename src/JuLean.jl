@@ -592,6 +592,10 @@ export
     ContractViolationError,
 
     # Specifications & Verification
+    PosInt,
+    NodeId,
+    ArcId,
+    PNat,
     FormalSpecification,
     VerificationStatus,
     StatusVerified,
@@ -608,6 +612,7 @@ export
     # Lean 4 Transpiler & Bridge
     LeanType,
     LeanNat,
+    LeanPNat,
     LeanInt,
     LeanRat,
     LeanFloat,

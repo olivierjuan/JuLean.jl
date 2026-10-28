@@ -1,6 +1,21 @@
 # JuLean.jl - Core Types and Verification Data Structures
 
 """
+    PosInt
+    NodeId
+    ArcId
+    PNat
+
+Type aliases representing strictly positive integers (`1, 2, 3, ...`),
+transpiled to Lean 4 as `ℕ+` (`PNat`). Indices of this type can be
+converted to 0-based Lean array indices via `p.1 - 1` without any `toNat` cast.
+"""
+const PosInt = Int
+const NodeId = Int
+const ArcId = Int
+const PNat = Int
+
+"""
     ContractViolationError
 
 Exception thrown when a precondition, postcondition, or invariant fails at runtime.

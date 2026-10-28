@@ -6,6 +6,7 @@ Abstract base type for Lean 4 types.
 abstract type LeanType end
 
 struct LeanNat <: LeanType end
+struct LeanPNat <: LeanType end
 struct LeanInt <: LeanType end
 struct LeanRat <: LeanType end
 struct LeanFloat <: LeanType end
