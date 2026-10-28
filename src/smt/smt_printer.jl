@@ -340,6 +340,8 @@ function generate_smtlib_query(spec::FormalSpecification; logic::String="", prod
         logic
     elseif !isempty(STRUCT_REGISTRY) || has_quant || has_arrays || has_mixed
         "ALL"
+    elseif has_ints && !has_reals
+        has_nonlin ? "QF_NIA" : "QF_LIA"
     elseif has_nonlin
         "QF_NRA"
     else
