@@ -81,7 +81,63 @@ using JuLean
         @test occursin("return acc", lean_code)
     end
 
-    @testset "5. Lean 4 Compilation of Transpiled Imperative Code" begin
+    @testset "5. Tree Pointer Climbing (Lowest Common Ancestor - LCA)" begin
+        @formalize function find_lca_test(parent::Vector{Int}, depth::Vector{Int}, u::Int, v::Int)::Int
+            @requires u >= 1 && v >= 1
+            curr_u = u
+            curr_v = v
+            while depth[curr_u] > depth[curr_v]
+                curr_u = parent[curr_u]
+            end
+            while depth[curr_v] > depth[curr_u]
+                curr_v = parent[curr_v]
+            end
+            while curr_u != curr_v
+                curr_u = parent[curr_u]
+                curr_v = parent[curr_v]
+            end
+            return curr_u
+        end
+
+        spec = JuLean.SPEC_REGISTRY[:find_lca_test]
+        lean_def, _ = JuLean.transpile_to_lean_decl(spec)
+        lean_code = JuLean.to_lean(lean_def)
+
+        @test occursin("Id.run do", lean_code)
+        @test occursin("let mut curr_u := u", lean_code)
+        @test occursin("let mut curr_v := v", lean_code)
+        @test occursin("while depth[(curr_u - 1).toNat]! > depth[(curr_v - 1).toNat]! do", lean_code)
+        @test occursin("while curr_u ≠ curr_v do", lean_code)
+
+        res = JuLean.verify(:find_lca_test; backend=:Lean4, tactic="by\n  rfl")
+        @test JuLean.is_verified(res)
+    end
+
+    @testset "6. Dynamic Array Construction (push! / Path Extraction)" begin
+        @formalize function extract_path_test(parent::Vector{Int}, from_node::Int, ancestor::Int)::Vector{Int}
+            @requires from_node >= 1 && ancestor >= 1
+            curr = from_node
+            path = Int[]
+            while curr != ancestor && curr != 0
+                push!(path, curr)
+                curr = parent[curr]
+            end
+            return path
+        end
+
+        spec = JuLean.SPEC_REGISTRY[:extract_path_test]
+        lean_def, _ = JuLean.transpile_to_lean_decl(spec)
+        lean_code = JuLean.to_lean(lean_def)
+
+        @test occursin("Id.run do", lean_code)
+        @test occursin("let mut path := #[]", lean_code)
+        @test occursin("path := path.push curr", lean_code)
+
+        res = JuLean.verify(:extract_path_test; backend=:Lean4, tactic="by\n  rfl")
+        @test JuLean.is_verified(res)
+    end
+
+    @testset "7. Lean 4 Compilation of Transpiled Imperative Code" begin
         formal_path = normpath(joinpath(@__DIR__, "..", "..", "formalization"))
         if isdir(formal_path)
             tmp_lean = tempname() * ".lean"
@@ -96,6 +152,14 @@ using JuLean
                     spec2 = JuLean.SPEC_REGISTRY[:accum_and_sub]
                     def2, _ = JuLean.transpile_to_lean_decl(spec2)
                     println(io, JuLean.to_lean(def2), "\n")
+
+                    spec3 = JuLean.SPEC_REGISTRY[:find_lca_test]
+                    def3, _ = JuLean.transpile_to_lean_decl(spec3)
+                    println(io, JuLean.to_lean(def3), "\n")
+
+                    spec4 = JuLean.SPEC_REGISTRY[:extract_path_test]
+                    def4, _ = JuLean.transpile_to_lean_decl(spec4)
+                    println(io, JuLean.to_lean(def4), "\n")
                 end
 
                 cmd = Cmd(`lake env lean $tmp_lean`, dir=formal_path)

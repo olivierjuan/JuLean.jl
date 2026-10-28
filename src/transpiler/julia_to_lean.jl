@@ -179,6 +179,9 @@ function julia_to_lean_expr(ex, fn_args::Vector{String}=String[], loop_vars::Set
         obj = julia_to_lean_expr(e.args[1], fn_args, loop_vars, fn_arg_types)
         field_sym = e.args[2] isa QuoteNode ? e.args[2].value : e.args[2]
         return LeanFieldAccess(obj, string(field_sym))
+    elseif e.head == :ref && length(e.args) == 1
+        # Empty array constructor like Int[] or Float64[]
+        return LeanArrayLit(LeanExpr[])
     elseif e.head == :ref && length(e.args) >= 2
         coll = julia_to_lean_expr(e.args[1], fn_args, loop_vars, fn_arg_types)
         raw_idx = e.args[2]
@@ -299,6 +302,8 @@ function is_imperative_block(stmts::Vector{Any})::Bool
                 return true
             elseif s.head in (:(+=), :(-=), :(*=), :(/=))
                 return true
+            elseif s.head == :call && length(s.args) >= 2 && s.args[1] in (:push!, :push, :pop!)
+                return true
             elseif s.head == :(=) && length(s.args) >= 1 && s.args[1] isa Expr && s.args[1].head == :ref
                 return true # a[i] = v
             elseif s.head == :(=) && length(s.args) >= 1 && s.args[1] isa Symbol
@@ -322,6 +327,8 @@ function collect_mutated_vars!(mutated::Set{String}, ex)
             elseif lhs isa Symbol
                 push!(mutated, string(lhs))
             end
+        elseif ex.head == :call && length(ex.args) >= 2 && ex.args[1] in (:push!, :push, :pop!)
+            push!(mutated, string(ex.args[2]))
         end
         for a in ex.args
             collect_mutated_vars!(mutated, a)
@@ -405,6 +412,14 @@ function translate_do_stmt(stmt, declared_muts::Set{String}, loop_vars::Set{Stri
     if stmt isa Expr && stmt.head == :return
         val = isempty(stmt.args) ? LeanLitBool(true) : julia_to_lean_expr(stmt.args[1], String[], loop_vars, fn_arg_types)
         return LeanDoReturn(val)
+    end
+
+    # push!(coll, val) -> coll := coll.push val
+    if stmt isa Expr && stmt.head == :call && length(stmt.args) >= 3 && stmt.args[1] in (:push!, :push)
+        coll_name = string(stmt.args[2])
+        val = julia_to_lean_expr(stmt.args[3], String[], loop_vars, fn_arg_types)
+        new_val = LeanApp(LeanFieldAccess(LeanVar(coll_name), "push"), [val])
+        return LeanDoAssign(coll_name, new_val)
     end
 
     # Array assignment: arr[idx] = val
