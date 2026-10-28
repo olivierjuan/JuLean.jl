@@ -189,6 +189,9 @@ function julia_to_lean_expr(ex, fn_args::Vector{String}=String[], loop_vars::Set
             LeanVar(string(raw_idx))
         elseif raw_idx isa Symbol && (get(fn_arg_types, raw_idx, nothing) in (:UInt, :UInt64, :UInt32, :Nat, UInt, UInt64, LeanNat()))
             LeanVar(string(raw_idx))
+        elseif raw_idx isa Expr && raw_idx.head == :call && length(raw_idx.args) == 3 && raw_idx.args[1] == :+ && (raw_idx.args[2] isa Symbol && string(raw_idx.args[2]) in loop_vars)
+            offset = raw_idx.args[3]
+            LeanBinOp(:+, LeanVar(string(raw_idx.args[2])), julia_to_lean_expr(offset, fn_args, loop_vars, fn_arg_types))
         elseif raw_idx isa Integer
             raw_idx == 0 ? LeanLitInt(0) : LeanLitInt(Int(raw_idx) - 1)
         else
