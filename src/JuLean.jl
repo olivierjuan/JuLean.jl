@@ -511,6 +511,20 @@ function verify(fn_name::Symbol; kwargs...)
 end
 
 """
+    formalize!(func::Function, argtypes::Tuple=()) -> FormalSpecification
+
+Formalizes a function directly by extracting its implementation and docstring contracts,
+and registers it in `SPEC_REGISTRY` and `INLINE_REGISTRY`.
+"""
+function formalize!(func::Function, argtypes::Tuple=())::FormalSpecification
+    spec = extract_formal_spec(func, argtypes)
+    SPEC_REGISTRY[spec.name] = spec
+    register_inline!(spec.name, spec.args, spec.body)
+    register_inline!(func, spec.args, spec.body)
+    return spec
+end
+
+"""
     @formalize function ... end
     @formalize struct ... end
     @formalize Module.func
@@ -534,12 +548,8 @@ macro formalize(def_expr)
     if def_expr isa Symbol || (def_expr isa Expr && def_expr.head == :. && length(def_expr.args) == 2)
         # Function reference passed! E.g. @formalize Sirocco.reduced_cost
         return quote
-            func_val = $(esc(def_expr))
-            spec = $(@__MODULE__).extract_formal_spec(func_val)
-            $(@__MODULE__).SPEC_REGISTRY[spec.name] = spec
-            $(@__MODULE__).register_inline!(spec.name, spec.args, spec.body)
-            $(@__MODULE__).register_inline!(func_val, spec.args, spec.body)
-            spec.name
+            $(@__MODULE__).formalize!($(esc(def_expr)))
+            nameof($(esc(def_expr)))
         end
     end
 
@@ -592,6 +602,7 @@ export
     VerificationResult,
     is_verified,
     verify,
+    formalize!,
     SPEC_REGISTRY,
 
     # Lean 4 Transpiler & Bridge
