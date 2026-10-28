@@ -109,9 +109,90 @@ function to_lean(e::LeanExpr; precedence::Int=0)::String
     elseif e isa LeanSum
         res = "∑ $(e.var) ∈ $(to_lean(e.domain)), $(to_lean(e.body))"
         return precedence > 5 ? "($res)" : res
+    elseif e isa LeanDoBlock
+        return to_lean(e; indent=2)
+    elseif e isa LeanIdRun
+        return "Id.run do\n" * to_lean(e.block; indent=2)
+    elseif e isa LeanArrayLit
+        elems_str = join([to_lean(el) for el in e.elements], ", ")
+        return "#[$elems_str]"
     else
         return string(e)
     end
+end
+
+"""
+    to_lean_stmt(stmt::LeanDoStmt; indent::Int=2) -> String
+
+Renders an imperative Lean 4 `do` statement with proper indentation.
+"""
+function to_lean_stmt(stmt::LeanDoStmt; indent::Int=2)::String
+    sp = " "^indent
+    if stmt isa LeanDoLetMut
+        return "$(sp)let mut $(stmt.var) := $(to_lean(stmt.val))"
+    elseif stmt isa LeanDoLet
+        return "$(sp)let $(stmt.var) := $(to_lean(stmt.val))"
+    elseif stmt isa LeanDoAssign
+        return "$(sp)$(stmt.var) := $(to_lean(stmt.val))"
+    elseif stmt isa LeanDoArraySet
+        return "$(sp)$(stmt.collection) := $(stmt.collection).set! $(to_lean(stmt.index; precedence=100)) $(to_lean(stmt.val; precedence=100))"
+    elseif stmt isa LeanDoForRange
+        stop_str = to_lean(stmt.stop_expr)
+        header = if stmt.start_expr isa LeanLitInt && stmt.start_expr.val == 0
+            "$(sp)for $(stmt.var) in [:$stop_str] do"
+        else
+            "$(sp)for $(stmt.var) in [$(to_lean(stmt.start_expr)):$stop_str] do"
+        end
+        lines = String[header]
+        for s in stmt.body
+            push!(lines, to_lean_stmt(s; indent=indent+2))
+        end
+        return join(lines, "\n")
+    elseif stmt isa LeanDoForIn
+        lines = String["$(sp)for $(stmt.var) in $(to_lean(stmt.collection)) do"]
+        for s in stmt.body
+            push!(lines, to_lean_stmt(s; indent=indent+2))
+        end
+        return join(lines, "\n")
+    elseif stmt isa LeanDoWhile
+        lines = String["$(sp)while $(to_lean(stmt.cond)) do"]
+        for s in stmt.body
+            push!(lines, to_lean_stmt(s; indent=indent+2))
+        end
+        return join(lines, "\n")
+    elseif stmt isa LeanDoIf
+        lines = String["$(sp)if $(to_lean(stmt.cond)) then"]
+        for s in stmt.then_body
+            push!(lines, to_lean_stmt(s; indent=indent+2))
+        end
+        if !isempty(stmt.else_body)
+            push!(lines, "$(sp)else")
+            for s in stmt.else_body
+                push!(lines, to_lean_stmt(s; indent=indent+2))
+            end
+        end
+        return join(lines, "\n")
+    elseif stmt isa LeanDoReturn
+        return "$(sp)return $(to_lean(stmt.expr))"
+    elseif stmt isa LeanDoExpr
+        return "$(sp)$(to_lean(stmt.expr))"
+    else
+        return "$(sp)$(string(stmt))"
+    end
+end
+
+"""
+    to_lean(b::LeanDoBlock; indent::Int=2) -> String
+
+Renders a sequence of imperative `do` statements ending with a return value.
+"""
+function to_lean(b::LeanDoBlock; indent::Int=2)::String
+    lines = String[]
+    for s in b.stmts
+        push!(lines, to_lean_stmt(s; indent=indent))
+    end
+    push!(lines, "$(" "^indent)return $(to_lean(b.return_expr))")
+    return join(lines, "\n")
 end
 
 function binop_info(op::Symbol)

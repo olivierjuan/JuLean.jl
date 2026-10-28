@@ -138,6 +138,77 @@ struct LeanRawExpr <: LeanExpr
 end
 
 """
+Abstract base type for Lean 4 imperative statements inside a `do` block.
+"""
+abstract type LeanDoStmt end
+
+struct LeanDoLetMut <: LeanDoStmt
+    var::String
+    val::LeanExpr
+end
+
+struct LeanDoLet <: LeanDoStmt
+    var::String
+    val::LeanExpr
+end
+
+struct LeanDoAssign <: LeanDoStmt
+    var::String
+    val::LeanExpr
+end
+
+struct LeanDoArraySet <: LeanDoStmt
+    collection::String
+    index::LeanExpr
+    val::LeanExpr
+end
+
+struct LeanDoForRange <: LeanDoStmt
+    var::String
+    start_expr::LeanExpr
+    stop_expr::LeanExpr
+    body::Vector{LeanDoStmt}
+end
+
+struct LeanDoForIn <: LeanDoStmt
+    var::String
+    collection::LeanExpr
+    body::Vector{LeanDoStmt}
+end
+
+struct LeanDoWhile <: LeanDoStmt
+    cond::LeanExpr
+    body::Vector{LeanDoStmt}
+end
+
+struct LeanDoIf <: LeanDoStmt
+    cond::LeanExpr
+    then_body::Vector{LeanDoStmt}
+    else_body::Vector{LeanDoStmt}
+end
+
+struct LeanDoExpr <: LeanDoStmt
+    expr::LeanExpr
+end
+
+struct LeanDoReturn <: LeanDoStmt
+    expr::LeanExpr
+end
+
+struct LeanDoBlock <: LeanExpr
+    stmts::Vector{LeanDoStmt}
+    return_expr::LeanExpr
+end
+
+struct LeanIdRun <: LeanExpr
+    block::LeanDoBlock
+end
+
+struct LeanArrayLit <: LeanExpr
+    elements::Vector{LeanExpr}
+end
+
+"""
 Abstract base type for Lean 4 declarations.
 """
 abstract type LeanDecl end

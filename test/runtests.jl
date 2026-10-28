@@ -349,4 +349,7 @@ using JuLean
         @test !is_verified(res_fail)
     end
 
+    # 10. Imperative Programming & Id.run do Transpilation
+    include("test_imperative.jl")
+
 end

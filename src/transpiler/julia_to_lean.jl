@@ -116,11 +116,11 @@ function unwrap_ast_expr(ex)
 end
 
 """
-    julia_to_lean_expr(expr) -> LeanExpr
+    julia_to_lean_expr(expr, fn_args=String[], loop_vars=Set{String}(), fn_arg_types=Dict{Symbol, Any}()) -> LeanExpr
 
 Recursively converts a Julia expression or value into a `LeanExpr`.
 """
-function julia_to_lean_expr(ex)::LeanExpr
+function julia_to_lean_expr(ex, fn_args::Vector{String}=String[], loop_vars::Set{String}=Set{String}(), fn_arg_types::Dict{Symbol, Any}=Dict{Symbol, Any}())::LeanExpr
     unwrapped = unwrap_ast_expr(ex)
 
     if unwrapped isa Bool
@@ -154,46 +154,61 @@ function julia_to_lean_expr(ex)::LeanExpr
         if isempty(clean_args)
             return LeanLitBool(true)
         elseif length(clean_args) == 1
-            return julia_to_lean_expr(clean_args[1])
+            return julia_to_lean_expr(clean_args[1], fn_args, loop_vars, fn_arg_types)
+        elseif is_imperative_block(clean_args)
+            return LeanIdRun(build_imperative_do_block(clean_args, fn_args, fn_arg_types))
         else
             # Translate sequence of let-bindings
             return build_lean_block(clean_args)
         end
+    elseif e.head == :vect
+        clean_args = filter(a -> !(a isa LineNumberNode), e.args)
+        return LeanArrayLit([julia_to_lean_expr(a, fn_args, loop_vars, fn_arg_types) for a in clean_args])
     elseif e.head == :return
-        return isempty(e.args) ? LeanLitBool(true) : julia_to_lean_expr(e.args[1])
+        return isempty(e.args) ? LeanLitBool(true) : julia_to_lean_expr(e.args[1], fn_args, loop_vars, fn_arg_types)
     elseif e.head == :(=) && length(e.args) == 2
         var_name = string(e.args[1])
-        val = julia_to_lean_expr(e.args[2])
+        val = julia_to_lean_expr(e.args[2], fn_args, loop_vars, fn_arg_types)
         return LeanLet(var_name, val, LeanVar(var_name))
     elseif e.head in (:if, :elseif)
-        cond = julia_to_lean_expr(e.args[1])
-        then_b = julia_to_lean_expr(e.args[2])
-        else_b = length(e.args) >= 3 ? julia_to_lean_expr(e.args[3]) : LeanLitBool(true)
+        cond = julia_to_lean_expr(e.args[1], fn_args, loop_vars, fn_arg_types)
+        then_b = julia_to_lean_expr(e.args[2], fn_args, loop_vars, fn_arg_types)
+        else_b = length(e.args) >= 3 ? julia_to_lean_expr(e.args[3], fn_args, loop_vars, fn_arg_types) : LeanLitBool(true)
         return LeanIf(cond, then_b, else_b)
     elseif e.head == :. && length(e.args) == 2
-        obj = julia_to_lean_expr(e.args[1])
+        obj = julia_to_lean_expr(e.args[1], fn_args, loop_vars, fn_arg_types)
         field_sym = e.args[2] isa QuoteNode ? e.args[2].value : e.args[2]
         return LeanFieldAccess(obj, string(field_sym))
     elseif e.head == :ref && length(e.args) >= 2
-        coll = julia_to_lean_expr(e.args[1])
-        idx = julia_to_lean_expr(e.args[2])
+        coll = julia_to_lean_expr(e.args[1], fn_args, loop_vars, fn_arg_types)
+        raw_idx = e.args[2]
+        idx = if (raw_idx isa Symbol && string(raw_idx) in loop_vars)
+            LeanVar(string(raw_idx))
+        elseif raw_idx isa Symbol && (get(fn_arg_types, raw_idx, nothing) in (:UInt, :UInt64, :UInt32, :Nat, UInt, UInt64, LeanNat()))
+            LeanVar(string(raw_idx))
+        elseif raw_idx isa Integer
+            raw_idx == 0 ? LeanLitInt(0) : LeanLitInt(Int(raw_idx) - 1)
+        else
+            idx_inner = to_lean(julia_to_lean_expr(raw_idx, fn_args, loop_vars, fn_arg_types))
+            LeanRawExpr("($idx_inner - 1).toNat")
+        end
         return LeanIndexAccess(coll, idx)
     elseif e.head == :call
-        return translate_call(e.args)
+        return translate_call(e.args, fn_args, loop_vars, fn_arg_types)
     elseif e.head in (:&&, :and)
-        left = julia_to_lean_expr(e.args[1])
-        right = julia_to_lean_expr(e.args[2])
+        left = julia_to_lean_expr(e.args[1], fn_args, loop_vars, fn_arg_types)
+        right = julia_to_lean_expr(e.args[2], fn_args, loop_vars, fn_arg_types)
         return LeanBinOp(:∧, left, right)
     elseif e.head in (:||, :or)
-        left = julia_to_lean_expr(e.args[1])
-        right = julia_to_lean_expr(e.args[2])
+        left = julia_to_lean_expr(e.args[1], fn_args, loop_vars, fn_arg_types)
+        right = julia_to_lean_expr(e.args[2], fn_args, loop_vars, fn_arg_types)
         return LeanBinOp(:∨, left, right)
     elseif e.head == :comparison
         # Handle chained comparisons like lb <= f <= ub
-        return translate_comparison(e.args)
+        return translate_comparison(e.args, fn_args, loop_vars, fn_arg_types)
     elseif e.head == Symbol("-->") || e.head == Symbol("⟹")
-        left = julia_to_lean_expr(e.args[1])
-        right = julia_to_lean_expr(e.args[2])
+        left = julia_to_lean_expr(e.args[1], fn_args, loop_vars, fn_arg_types)
+        right = julia_to_lean_expr(e.args[2], fn_args, loop_vars, fn_arg_types)
         return LeanBinOp(:→, left, right)
     elseif e.head == :macrocall
         return translate_lean_macro(e)
@@ -270,59 +285,293 @@ function build_lean_block(stmts::Vector{Any})::LeanExpr
 end
 
 """
+    is_imperative_block(stmts::Vector{Any}) -> Bool
+
+Detects whether a list of statements requires imperative Lean 4 `do` execution:
+contains loops (`for`, `while`), array mutations (`a[i] = v`, `a[i] += v`),
+in-place mutations (`x += v`), or variable reassignments.
+"""
+function is_imperative_block(stmts::Vector{Any})::Bool
+    assigned = Set{Symbol}()
+    for s in stmts
+        if s isa Expr
+            if s.head in (:for, :while)
+                return true
+            elseif s.head in (:(+=), :(-=), :(*=), :(/=))
+                return true
+            elseif s.head == :(=) && length(s.args) >= 1 && s.args[1] isa Expr && s.args[1].head == :ref
+                return true # a[i] = v
+            elseif s.head == :(=) && length(s.args) >= 1 && s.args[1] isa Symbol
+                sym = s.args[1]
+                if sym in assigned
+                    return true # re-assigned variable
+                end
+                push!(assigned, sym)
+            end
+        end
+    end
+    return false
+end
+
+function collect_mutated_vars!(mutated::Set{String}, ex)
+    if ex isa Expr
+        if ex.head in (:(=), :(+=), :(-=), :(*=), :(/=)) && length(ex.args) >= 1
+            lhs = ex.args[1]
+            if lhs isa Expr && lhs.head == :ref
+                push!(mutated, string(lhs.args[1]))
+            elseif lhs isa Symbol
+                push!(mutated, string(lhs))
+            end
+        end
+        for a in ex.args
+            collect_mutated_vars!(mutated, a)
+        end
+    end
+end
+
+"""
+    build_imperative_do_block(stmts::Vector{Any}, fn_args::Vector{String}=String[], fn_arg_types::Dict{Symbol, Any}=Dict{Symbol, Any}()) -> LeanDoBlock
+
+Translates an imperative sequence of Julia statements into a `LeanDoBlock`
+containing `LeanDoStmt`s and an ending return value.
+"""
+function build_imperative_do_block(stmts::Vector{Any}, fn_args::Vector{String}=String[], fn_arg_types::Dict{Symbol, Any}=Dict{Symbol, Any}())::LeanDoBlock
+    declared_muts = Set{String}()
+    loop_vars = Set{String}()
+    do_stmts = LeanDoStmt[]
+    ret_expr = LeanLitBool(true)
+
+    mutated = Set{String}()
+    for s in stmts
+        collect_mutated_vars!(mutated, s)
+    end
+
+    # Automatically declare function arguments that are mutated as mutable in Lean 4
+    for arg in fn_args
+        if arg in mutated
+            push!(declared_muts, arg)
+            push!(do_stmts, LeanDoLetMut(arg, LeanVar(arg)))
+        end
+    end
+
+    for (idx, s) in enumerate(stmts)
+        # If last statement is a return or an expression
+        if idx == length(stmts)
+            if s isa Expr && s.head == :return
+                ret_expr = isempty(s.args) ? LeanLitBool(true) : julia_to_lean_expr(s.args[1], fn_args, loop_vars, fn_arg_types)
+                break
+            elseif !(s isa Expr && s.head in (:(=), :(+=), :(-=), :(*=), :(/=), :for, :while))
+                # Expression as implicit return
+                ret_expr = julia_to_lean_expr(s, fn_args, loop_vars, fn_arg_types)
+                break
+            end
+        end
+
+        st = translate_do_stmt(s, declared_muts, loop_vars, fn_arg_types)
+        if st !== nothing
+            if st isa LeanDoReturn
+                ret_expr = st.expr
+                break
+            else
+                push!(do_stmts, st)
+            end
+        end
+    end
+
+    return LeanDoBlock(do_stmts, ret_expr)
+end
+
+function translate_do_body(body_expr, declared_muts::Set{String}, loop_vars::Set{String}, fn_arg_types::Dict{Symbol, Any}=Dict{Symbol, Any}())::Vector{LeanDoStmt}
+    res = LeanDoStmt[]
+    stmts = if body_expr isa Expr && body_expr.head == :block
+        filter(a -> !(a isa LineNumberNode), body_expr.args)
+    else
+        [body_expr]
+    end
+
+    for s in stmts
+        st = translate_do_stmt(s, declared_muts, loop_vars, fn_arg_types)
+        if st !== nothing
+            push!(res, st)
+        end
+    end
+    return res
+end
+
+function translate_do_stmt(stmt, declared_muts::Set{String}, loop_vars::Set{String}, fn_arg_types::Dict{Symbol, Any}=Dict{Symbol, Any}())::Union{LeanDoStmt, Nothing}
+    stmt isa LineNumberNode && return nothing
+
+    # Return
+    if stmt isa Expr && stmt.head == :return
+        val = isempty(stmt.args) ? LeanLitBool(true) : julia_to_lean_expr(stmt.args[1], String[], loop_vars, fn_arg_types)
+        return LeanDoReturn(val)
+    end
+
+    # Array assignment: arr[idx] = val
+    if stmt isa Expr && stmt.head == :(=) && length(stmt.args) == 2 && stmt.args[1] isa Expr && stmt.args[1].head == :ref
+        arr_name = string(stmt.args[1].args[1])
+        raw_idx = stmt.args[1].args[2]
+        idx_expr = if (raw_idx isa Symbol && string(raw_idx) in loop_vars)
+            julia_to_lean_expr(raw_idx, String[], loop_vars, fn_arg_types)
+        elseif raw_idx isa Symbol && (get(fn_arg_types, raw_idx, nothing) in (:UInt, :UInt64, :UInt32, :Nat, UInt, UInt64, LeanNat()))
+            LeanVar(string(raw_idx))
+        elseif raw_idx isa Integer
+            raw_idx == 0 ? LeanLitInt(0) : LeanLitInt(Int(raw_idx) - 1)
+        else
+            idx_inner = to_lean(julia_to_lean_expr(raw_idx, String[], loop_vars, fn_arg_types))
+            LeanRawExpr("($idx_inner - 1).toNat")
+        end
+        val = julia_to_lean_expr(stmt.args[2], String[], loop_vars, fn_arg_types)
+        return LeanDoArraySet(arr_name, idx_expr, val)
+    end
+
+    # Array compound in-place addition: arr[idx] += val
+    if stmt isa Expr && stmt.head == :(+=) && length(stmt.args) == 2 && stmt.args[1] isa Expr && stmt.args[1].head == :ref
+        arr_name = string(stmt.args[1].args[1])
+        raw_idx = stmt.args[1].args[2]
+        idx_expr = if (raw_idx isa Symbol && string(raw_idx) in loop_vars)
+            julia_to_lean_expr(raw_idx, String[], loop_vars, fn_arg_types)
+        elseif raw_idx isa Symbol && (get(fn_arg_types, raw_idx, nothing) in (:UInt, :UInt64, :UInt32, :Nat, UInt, UInt64, LeanNat()))
+            LeanVar(string(raw_idx))
+        elseif raw_idx isa Integer
+            raw_idx == 0 ? LeanLitInt(0) : LeanLitInt(Int(raw_idx) - 1)
+        else
+            idx_inner = to_lean(julia_to_lean_expr(raw_idx, String[], loop_vars, fn_arg_types))
+            LeanRawExpr("($idx_inner - 1).toNat")
+        end
+        old_val = LeanIndexAccess(LeanVar(arr_name), idx_expr)
+        new_val = LeanBinOp(:+, old_val, julia_to_lean_expr(stmt.args[2], String[], loop_vars, fn_arg_types))
+        return LeanDoArraySet(arr_name, idx_expr, new_val)
+    end
+
+    # Scalar in-place compound assignment: x += val
+    if stmt isa Expr && stmt.head in (:(+=), :(-=), :(*=), :(/=)) && length(stmt.args) == 2 && stmt.args[1] isa Symbol
+        v_name = string(stmt.args[1])
+        op = Symbol(string(stmt.head)[1])
+        old_val = LeanVar(v_name)
+        new_val = LeanBinOp(op, old_val, julia_to_lean_expr(stmt.args[2], String[], loop_vars, fn_arg_types))
+        if v_name in declared_muts
+            return LeanDoAssign(v_name, new_val)
+        else
+            push!(declared_muts, v_name)
+            return LeanDoLetMut(v_name, new_val)
+        end
+    end
+
+    # Scalar variable assignment: v = val
+    if stmt isa Expr && stmt.head == :(=) && length(stmt.args) == 2 && stmt.args[1] isa Symbol
+        v_name = string(stmt.args[1])
+        val = julia_to_lean_expr(stmt.args[2], String[], loop_vars, fn_arg_types)
+        if v_name in declared_muts
+            return LeanDoAssign(v_name, val)
+        else
+            push!(declared_muts, v_name)
+            return LeanDoLetMut(v_name, val)
+        end
+    end
+
+    # For loop: for i in range ... end
+    if stmt isa Expr && stmt.head == :for && length(stmt.args) == 2
+        iter_spec = stmt.args[1]
+        body_expr = stmt.args[2]
+
+        if iter_spec isa Expr && iter_spec.head == :(=) && length(iter_spec.args) == 2
+            var_name = string(iter_spec.args[1])
+            rng = iter_spec.args[2]
+
+            if rng isa Expr && rng.head == :call && rng.args[1] == :(:) && length(rng.args) == 3
+                start_val = rng.args[2]
+                stop_val = rng.args[3]
+                if start_val == 1
+                    new_loop_vars = copy(loop_vars)
+                    push!(new_loop_vars, var_name)
+                    b_stmts = translate_do_body(body_expr, copy(declared_muts), new_loop_vars, fn_arg_types)
+                    return LeanDoForRange(var_name, LeanLitInt(0), julia_to_lean_expr(stop_val, String[], loop_vars, fn_arg_types), b_stmts)
+                else
+                    new_loop_vars = copy(loop_vars)
+                    b_stmts = translate_do_body(body_expr, copy(declared_muts), new_loop_vars, fn_arg_types)
+                    return LeanDoForRange(var_name, julia_to_lean_expr(start_val, String[], loop_vars, fn_arg_types), julia_to_lean_expr(stop_val, String[], loop_vars, fn_arg_types), b_stmts)
+                end
+            else
+                coll_expr = julia_to_lean_expr(rng, String[], loop_vars, fn_arg_types)
+                b_stmts = translate_do_body(body_expr, copy(declared_muts), loop_vars, fn_arg_types)
+                return LeanDoForIn(var_name, coll_expr, b_stmts)
+            end
+        end
+    end
+
+    # While loop: while cond ... end
+    if stmt isa Expr && stmt.head == :while && length(stmt.args) == 2
+        cond = julia_to_lean_expr(stmt.args[1], String[], loop_vars, fn_arg_types)
+        b_stmts = translate_do_body(stmt.args[2], copy(declared_muts), loop_vars, fn_arg_types)
+        return LeanDoWhile(cond, b_stmts)
+    end
+
+    # If inside do-block
+    if stmt isa Expr && stmt.head in (:if, :elseif) && length(stmt.args) >= 2
+        cond = julia_to_lean_expr(stmt.args[1], String[], loop_vars, fn_arg_types)
+        then_stmts = translate_do_body(stmt.args[2], copy(declared_muts), loop_vars, fn_arg_types)
+        else_stmts = length(stmt.args) >= 3 ? translate_do_body(stmt.args[3], copy(declared_muts), loop_vars, fn_arg_types) : LeanDoStmt[]
+        return LeanDoIf(cond, then_stmts, else_stmts)
+    end
+
+    return LeanDoExpr(julia_to_lean_expr(stmt, String[], loop_vars, fn_arg_types))
+end
+
+"""
 Translate Julia function calls and binary operators.
 """
-function translate_call(args::Vector{Any})::LeanExpr
+function translate_call(args::Vector{Any}, fn_args::Vector{String}=String[], loop_vars::Set{String}=Set{String}(), fn_arg_types::Dict{Symbol, Any}=Dict{Symbol, Any}())::LeanExpr
     fn = args[1]
     fn_sym = fn isa Symbol ? fn : (fn isa GlobalRef ? fn.name : nothing)
 
     # Infix operators
     if fn_sym in (:+, :-, :*, :/, :(==), :!=, :<, :<=, :>, :>=, :≤, :≥, :≠)
         if length(args) == 3
-            left = julia_to_lean_expr(args[2])
-            right = julia_to_lean_expr(args[3])
+            left = julia_to_lean_expr(args[2], fn_args, loop_vars, fn_arg_types)
+            right = julia_to_lean_expr(args[3], fn_args, loop_vars, fn_arg_types)
             return LeanBinOp(fn_sym, left, right)
         elseif length(args) == 2 && fn_sym == :-
-            return LeanUnaryOp(:-, julia_to_lean_expr(args[2]))
+            return LeanUnaryOp(:-, julia_to_lean_expr(args[2], fn_args, loop_vars, fn_arg_types))
         end
     elseif fn_sym in (:!, :¬)
-        return LeanUnaryOp(:¬, julia_to_lean_expr(args[2]))
+        return LeanUnaryOp(:¬, julia_to_lean_expr(args[2], fn_args, loop_vars, fn_arg_types))
     elseif fn_sym in (:implies, :⟹, Symbol("-->"))
-        left = julia_to_lean_expr(args[2])
-        right = julia_to_lean_expr(args[3])
+        left = julia_to_lean_expr(args[2], fn_args, loop_vars, fn_arg_types)
+        right = julia_to_lean_expr(args[3], fn_args, loop_vars, fn_arg_types)
         return LeanBinOp(:→, left, right)
     elseif fn_sym in (:&&, :and)
-        left = julia_to_lean_expr(args[2])
-        right = julia_to_lean_expr(args[3])
+        left = julia_to_lean_expr(args[2], fn_args, loop_vars, fn_arg_types)
+        right = julia_to_lean_expr(args[3], fn_args, loop_vars, fn_arg_types)
         return LeanBinOp(:∧, left, right)
     elseif fn_sym in (:||, :or)
-        left = julia_to_lean_expr(args[2])
-        right = julia_to_lean_expr(args[3])
+        left = julia_to_lean_expr(args[2], fn_args, loop_vars, fn_arg_types)
+        right = julia_to_lean_expr(args[3], fn_args, loop_vars, fn_arg_types)
         return LeanBinOp(:∨, left, right)
     end
 
     # Standard function application
     if fn_sym !== nothing && haskey(STRUCT_REGISTRY, fn_sym)
-        return LeanApp(LeanVar("$(fn_sym).mk"), [julia_to_lean_expr(a) for a in args[2:end]])
+        return LeanApp(LeanVar("$(fn_sym).mk"), [julia_to_lean_expr(a, fn_args, loop_vars, fn_arg_types) for a in args[2:end]])
     elseif fn_sym in (:length, :size) && length(args) == 2
-        return LeanFieldAccess(julia_to_lean_expr(args[2]), "size")
+        return LeanFieldAccess(julia_to_lean_expr(args[2], fn_args, loop_vars, fn_arg_types), "size")
     end
 
-    lean_fn = julia_to_lean_expr(fn)
-    lean_args = [julia_to_lean_expr(a) for a in args[2:end]]
+    lean_fn = julia_to_lean_expr(fn, fn_args, loop_vars, fn_arg_types)
+    lean_args = [julia_to_lean_expr(a, fn_args, loop_vars, fn_arg_types) for a in args[2:end]]
     return LeanApp(lean_fn, lean_args)
 end
 
 """
 Translate chained comparison expressions (e.g. `a <= b <= c` -> `a ≤ b ∧ b ≤ c`).
 """
-function translate_comparison(args::Vector{Any})::LeanExpr
+function translate_comparison(args::Vector{Any}, fn_args::Vector{String}=String[], loop_vars::Set{String}=Set{String}(), fn_arg_types::Dict{Symbol, Any}=Dict{Symbol, Any}())::LeanExpr
     # args has form [a, op1, b, op2, c, ...]
     terms = LeanExpr[]
     for i in 2:2:length(args)
         op = args[i]
-        l = julia_to_lean_expr(args[i-1])
-        r = julia_to_lean_expr(args[i+1])
+        l = julia_to_lean_expr(args[i-1], fn_args, loop_vars, fn_arg_types)
+        r = julia_to_lean_expr(args[i+1], fn_args, loop_vars, fn_arg_types)
         push!(terms, LeanBinOp(op, l, r))
     end
     if length(terms) == 1
@@ -370,6 +619,10 @@ function substitute_var(e::LeanExpr, old_name::String, replacement::LeanExpr)::L
         return e.var == old_name ? e : LeanForall(e.var, e.type, substitute_var(e.body, old_name, replacement))
     elseif e isa LeanExists
         return e.var == old_name ? e : LeanExists(e.var, e.type, substitute_var(e.body, old_name, replacement))
+    elseif e isa LeanArrayLit
+        return LeanArrayLit([substitute_var(el, old_name, replacement) for el in e.elements])
+    elseif e isa LeanIdRun
+        return e
     else
         return e
     end
@@ -390,7 +643,8 @@ function transpile_to_lean_decl(spec::FormalSpecification; tactic::String="")
     end
 
     ret_type = spec.return_type isa LeanType ? spec.return_type : julia_to_lean_type(spec.return_type)
-    lean_body = julia_to_lean_expr(spec.body)
+    fn_args = [string(a) for a in spec.args]
+    lean_body = julia_to_lean_expr(spec.body, fn_args, Set{String}(), spec.arg_types)
 
     lean_def = LeanDef(fn_name, lean_args, ret_type, lean_body, spec.docstring)
 
@@ -398,14 +652,14 @@ function transpile_to_lean_decl(spec::FormalSpecification; tactic::String="")
     thm_name = "$(fn_name)_spec"
     hyps = Tuple{String, LeanExpr}[]
     for (i, pre) in enumerate(spec.preconditions)
-        push!(hyps, ("h_pre_$i", julia_to_lean_expr(pre)))
+        push!(hyps, ("h_pre_$i", julia_to_lean_expr(pre, fn_args, Set{String}(), spec.arg_types)))
     end
 
     # Postconditions with `result` replaced by call to the defined function
     call_expr = LeanApp(LeanVar(fn_name), [LeanVar(string(a)) for a in spec.args])
     post_exprs = LeanExpr[]
     for post in spec.postconditions
-        post_lean = julia_to_lean_expr(post)
+        post_lean = julia_to_lean_expr(post, fn_args, Set{String}(), spec.arg_types)
         substituted = substitute_var(post_lean, "result", call_expr)
         push!(post_exprs, substituted)
     end
