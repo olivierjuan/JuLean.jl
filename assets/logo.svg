@@ -187,6 +187,6 @@
     <text class="brand-tagline" x="4" y="152">FAST AS JULIA. RIGOROUS AS LEAN.</text>
 
     <!-- Subtext -->
-    <text class="brand-subtext" x="4" y="182">Design-by-Contract &nbsp;•&nbsp; SMT Falsification &nbsp;•&nbsp; Mechanized Lean 4 Proofs</text>
+    <text class="brand-subtext" x="4" y="182">Design-by-Contract  •  SMT Falsification  •  Mechanized Lean 4 Proofs</text>
   </g>
 </svg>
