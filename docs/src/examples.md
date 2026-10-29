@@ -175,13 +175,15 @@ theorem safe_min_spec (x : ℚ) (y : ℚ) (h_pre_1 : x ≥ 0 ∧ y ≥ 0) :
 
 ---
 
-## 4. Collections and Safe Array Indexing
+## 4. Collections and Safe Array Indexing (1-Based Julia Semantics)
 
-Out-of-bounds array access is a leading cause of memory corruption and unexpected crashes in numerical code. JuLean models collections, sizes, and indexing constraints natively.
+In Julia, collections are **1-indexed** by convention (`1 <= i <= length(arr)`), unlike 0-indexed languages such as C, Python, or raw Lean 4.
+
+JuLean provides first-class support for 1-based indexing via `JuLean.PosInt` (positive integers `1, 2, ...`, transpiled to Mathlib `ℕ+`). The transpiler automatically maps Julia's 1-based array accesses `arr[i]` into Lean 4's 0-based array projections `arr[(i.1 - 1)]!`, while maintaining exact bounds semantics across both Z3 and Lean 4.
 
 ```julia
-@formalize function safe_lookup(arr::Vector{Real}, i::UInt)::Real
-    @requires 0 <= i < length(arr)
+@formalize function safe_lookup(arr::Vector{Real}, i::JuLean.PosInt)::Real
+    @requires 1 <= i <= length(arr)
     @ensures result == arr[i]
     return arr[i]
 end
@@ -190,26 +192,38 @@ end
 res_arr_z3 = verify(:safe_lookup; backend=:Z3)
 @assert res_arr_z3.status == StatusVerified
 
-# 2. Verified by Lean 4 Array projection
-res_arr_lean = verify(:safe_lookup; backend=:Lean4, tactic="by\n  unfold safe_lookup\n  rfl")
+# 2. Verified by Lean 4 Array projection (automatically proved via rfl)
+res_arr_lean = verify(:safe_lookup; backend=:Lean4)
 @assert res_arr_lean.status == StatusVerified
 ```
 
+The resulting Lean 4 definition and theorem cleanly bridge Julia's 1-based indexing to Lean 4:
+
+```lean
+def safe_lookup (arr : Array (ℚ)) (i : ℕ+) : ℚ :=
+  arr[(i.1 - 1)]!
+
+theorem safe_lookup_spec (arr : Array (ℚ)) (i : ℕ+) (h_pre_1 : 1 ≤ i ∧ i ≤ arr.size) :
+  safe_lookup arr i = arr[(i.1 - 1)]! := by
+  unfold safe_lookup
+  rfl
+```
+
 ### Refuting Insecure Lookups
-If a developer accidentally hardcodes index `0` instead of `i`:
+If a developer accidentally returns the first element `arr[1]` regardless of `i`:
 
 ```julia
-@formalize function buggy_lookup(arr::Vector{Real}, i::UInt)::Real
-    @requires 0 <= i < length(arr)
+@formalize function buggy_lookup(arr::Vector{Real}, i::JuLean.PosInt)::Real
+    @requires 1 <= i <= length(arr)
     @ensures result == arr[i]
-    return arr[0] # Bug: ignores parameter i!
+    return arr[1] # Bug: returns the first element regardless of i!
 end
 
 res_bug = verify(:buggy_lookup; backend=:Z3)
 @assert res_bug.status == StatusCounterexample
 ```
 
-Z3 synthesizes an array model where `arr[0] ≠ arr[i]`, proving the function incorrect.
+Z3 synthesizes an array model where `arr[1] ≠ arr[i]` (for example, with `length(arr) = 2` and `i = 2`), proving the implementation incorrect in milliseconds.
 
 ---
 
