@@ -1,5 +1,11 @@
 # JuLean.jl
 
+```@raw html
+<p align="center">
+  <img src="assets/logo.svg" alt="JuLean.jl Logo" width="560">
+</p>
+```
+
 *A Formal Verification and Design-by-Contract Bridge between Julia and Lean 4.*
 
 ---
