@@ -511,11 +511,11 @@ function translate_do_stmt(stmt, declared_muts::Set{String}, loop_vars::Set{Stri
             arr_sym = stmt.args[2].args[1]
             if arr_sym isa Symbol && haskey(fn_arg_types, arr_sym)
                 atyp = fn_arg_types[arr_sym]
-                if atyp isa LeanArray && atyp.elem_type isa LeanPNat
+                if atyp isa LeanArray && is_pnat_type(atyp.elem_type)
                     fn_arg_types[Symbol(v_name)] = :PNat
                 elseif atyp isa Expr && atyp.head == :curly && atyp.args[1] in (:Vector, :Array)
                     elem_t = atyp.args[2]
-                    if elem_t in (:PNat, :PosInt, :NodeId, :ArcId, Symbol("ℕ+"), LeanPNat(), PosInt)
+                    if is_pnat_type(elem_t)
                         fn_arg_types[Symbol(v_name)] = :PNat
                     end
                 end
