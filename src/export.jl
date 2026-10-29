@@ -3,16 +3,18 @@
 """
     export_lean_file(filepath::String;
                      fns=collect(keys(SPEC_REGISTRY)),
+                     tactics=Dict{Symbol, String}(),
                      imports=["Mathlib.Tactic"],
-                     set_options=["linter.unusedVariables false", "linter.unusedTactic false", "linter.unreachableTactic false"]) -> String
+                     set_options=["linter.unusedVariables false", "linter.unusedTactic false", "linter.unreachableTactic false", "linter.unnecessarySeqFocus false"]) -> String
 
 Exports all registered structures and selected formalized functions into a standalone,
 compilable Lean 4 source file.
 """
 function export_lean_file(filepath::String;
                          fns=collect(keys(SPEC_REGISTRY)),
+                         tactics::Dict{Symbol, String}=Dict{Symbol, String}(),
                          imports::Vector{String}=String["Mathlib.Tactic"],
-                         set_options::Vector{String}=String["linter.unusedVariables false", "linter.unusedTactic false", "linter.unreachableTactic false"])::String
+                         set_options::Vector{String}=String["linter.unusedVariables false", "linter.unusedTactic false", "linter.unreachableTactic false", "linter.unnecessarySeqFocus false"])::String
     lines = String[]
 
     for imp in imports
@@ -42,7 +44,8 @@ function export_lean_file(filepath::String;
     for fn in fns
         if haskey(SPEC_REGISTRY, fn)
             spec = SPEC_REGISTRY[fn]
-            lean_def, lean_thm = transpile_to_lean_decl(spec)
+            tac = get(tactics, fn, "")
+            lean_def, lean_thm = transpile_to_lean_decl(spec; tactic=tac)
             push!(lines, to_lean(lean_def))
             push!(lines, "")
             push!(lines, to_lean(lean_thm))
