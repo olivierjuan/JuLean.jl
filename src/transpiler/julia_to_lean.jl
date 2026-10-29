@@ -791,6 +791,9 @@ function synthesize_tactic(spec::FormalSpecification)::String
         push!(lines, "  try (split_ifs <;> try constructor <;> try linarith <;> try omega <;> try decide <;> try rfl)")
     end
 
-    push!(lines, "  first | linarith | omega | decide | rfl | aesop | norm_num")
+    push!(lines, "  first")
+    push!(lines, "  | done")
+    push!(lines, "  | constructor <;> (first | linarith | omega | decide | rfl | aesop | norm_num)")
+    push!(lines, "  | linarith | omega | decide | rfl | aesop | norm_num")
     return join(lines, "\n")
 end
