@@ -691,9 +691,11 @@ function substitute_var(e::LeanExpr, old_name::String, replacement::LeanExpr)::L
 end
 
 """
-    transpile_to_lean_decl(spec::FormalSpecification; tactic="") -> (LeanDef, LeanTheorem)
+    transpile_to_lean_decl(spec::FormalSpecification; tactic="") -> (LeanDef, Union{LeanTheorem, Nothing})
 
-Generates both the Lean 4 `def` and the verification `theorem` from a `FormalSpecification`.
+Generates the Lean 4 `def` and, when postconditions are declared, the verification
+`theorem`. A specification without postconditions has nothing to prove, so no
+theorem is emitted (`nothing` is returned in its place).
 """
 function transpile_to_lean_decl(spec::FormalSpecification; tactic::String="")
     fn_name = string(spec.name)
@@ -726,9 +728,12 @@ function transpile_to_lean_decl(spec::FormalSpecification; tactic::String="")
         push!(post_exprs, substituted)
     end
 
-    stmt = if isempty(post_exprs)
-        LeanBinOp(:(==), call_expr, call_expr)
-    elseif length(post_exprs) == 1
+    # Soundness: a specification without postconditions has nothing to prove.
+    # Emitting `f args = f args` would be a vacuous theorem (provable by `rfl`
+    # yet establishing no property); return `nothing` so callers skip it.
+    isempty(post_exprs) && return lean_def, nothing
+
+    stmt = if length(post_exprs) == 1
         post_exprs[1]
     else
         res = post_exprs[1]

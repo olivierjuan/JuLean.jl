@@ -48,8 +48,10 @@ function export_lean_file(filepath::String;
             lean_def, lean_thm = transpile_to_lean_decl(spec; tactic=tac)
             push!(lines, to_lean(lean_def))
             push!(lines, "")
-            push!(lines, to_lean(lean_thm))
-            push!(lines, "")
+            if lean_thm !== nothing
+                push!(lines, to_lean(lean_thm))
+                push!(lines, "")
+            end
         end
     end
 

@@ -170,14 +170,44 @@ function parse_unsat_core(out::AbstractString)::Vector{String}
 end
 
 """
+    body_has_loops(body) -> Bool
+
+Recursively checks whether a function body contains imperative loops
+(`while` / `for`), which the plain SMT translation does not model.
+"""
+function body_has_loops(body)::Bool
+    body isa Expr || return false
+    body.head in (:while, :for) && return true
+    return any(body_has_loops, body.args)
+end
+
+"""
     verify_with_z3(spec::FormalSpecification; logic::String="", timeout::Float64=30.0) -> VerificationResult
 
 Verifies a specification using Z3.
 - `unsat`: The specification holds for all inputs satisfying preconditions -> `StatusVerified`.
 - `sat`: A counterexample violating postconditions was found -> `StatusCounterexample`.
 - `unknown`: SMT solver was inconclusive -> `StatusUnverified`.
+
+Soundness: specifications without postconditions (vacuous falsification target)
+and specifications with imperative loops (dropped by the SMT translation) are
+rejected as `StatusUnverified` rather than reported as verified.
 """
 function verify_with_z3(spec::FormalSpecification; logic::String="", timeout::Float64=30.0)::VerificationResult
+    if isempty(spec.postconditions)
+        return VerificationResult(
+            spec.name, StatusUnverified, :Z3;
+            message="No postconditions declared; nothing to falsify",
+            elapsed_time=0.0
+        )
+    end
+    if body_has_loops(spec.body)
+        return VerificationResult(
+            spec.name, StatusUnverified, :Z3;
+            message="Imperative loops are not modeled by the SMT translation; use backend=:BMC with @invariant",
+            elapsed_time=0.0
+        )
+    end
     smt_code = generate_smtlib_query(spec; logic=logic)
     status_sym, out_str, err_str, elapsed = run_z3(smt_code; timeout=timeout)
 

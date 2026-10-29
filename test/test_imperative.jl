@@ -18,8 +18,10 @@ using JuLean
         @test occursin("arr := arr.set! (idx.1 - 1) val", lean_code)
         @test occursin("return arr[(idx.1 - 1)]!", lean_code)
 
-        res = JuLean.verify(:update_element; backend=:Lean4, tactic="by\n  rfl")
-        @test JuLean.is_verified(res)
+        # No postconditions: the def is type-checked only, nothing is proven.
+        res = JuLean.verify(:update_element; backend=:Lean4)
+        @test res.status == JuLean.StatusSyntaxChecked
+        @test !JuLean.is_verified(res)
     end
 
     @testset "2. For Loop Over Range (1-based to 0-based mapping)" begin
@@ -110,8 +112,10 @@ using JuLean
         @test occursin("while depth[(curr_u.1 - 1)]! > depth[(curr_v.1 - 1)]! do", lean_code)
         @test occursin("while curr_u ≠ curr_v do", lean_code)
 
-        res = JuLean.verify(:find_lca_test; backend=:Lean4, tactic="by\n  rfl")
-        @test JuLean.is_verified(res)
+        # No postconditions: the def is type-checked only, nothing is proven.
+        res = JuLean.verify(:find_lca_test; backend=:Lean4)
+        @test res.status == JuLean.StatusSyntaxChecked
+        @test !JuLean.is_verified(res)
     end
 
     @testset "6. Dynamic Array Construction (push! / Path Extraction)" begin
@@ -133,8 +137,10 @@ using JuLean
         @test occursin("let mut path := #[]", lean_code)
         @test occursin("path := path.push curr", lean_code)
 
-        res = JuLean.verify(:extract_path_test; backend=:Lean4, tactic="by\n  rfl")
-        @test JuLean.is_verified(res)
+        # No postconditions: the def is type-checked only, nothing is proven.
+        res = JuLean.verify(:extract_path_test; backend=:Lean4)
+        @test res.status == JuLean.StatusSyntaxChecked
+        @test !JuLean.is_verified(res)
     end
 
     @testset "8. PosInt / ℕ+ Indexing without toNat Casts" begin
@@ -163,11 +169,14 @@ using JuLean
         @test occursin("(p.1 - 1)", lean_code)
         @test !occursin("toNat", lean_code)
 
-        # Verify with Z3 and Lean 4
+        # Soundness: a for-loop body with no postconditions must not be
+        # reported as verified (Z3 drops loops; Lean has no theorem to prove).
         res_z3 = JuLean.verify(:pnat_indexing_test; backend=:Z3)
-        @test JuLean.is_verified(res_z3)
+        @test res_z3.status == JuLean.StatusUnverified
+        @test !JuLean.is_verified(res_z3)
 
-        res_l4 = JuLean.verify(:pnat_indexing_test; backend=:Lean4, tactic="by\n  rfl")
-        @test JuLean.is_verified(res_l4)
+        res_l4 = JuLean.verify(:pnat_indexing_test; backend=:Lean4)
+        @test res_l4.status == JuLean.StatusSyntaxChecked
+        @test !JuLean.is_verified(res_l4)
     end
 end

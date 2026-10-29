@@ -462,17 +462,27 @@ function verify(spec::FormalSpecification; backend::Symbol=:Z3, timeout::Float64
         lean_def, lean_thm = transpile_to_lean_decl(spec; tactic=tactic)
         struct_decls = [to_lean(s) for s in values(STRUCT_REGISTRY)]
         struct_header = isempty(struct_decls) ? "" : join(struct_decls, "\n\n") * "\n\n"
-        code = struct_header * to_lean(lean_def) * "\n\n" * to_lean(lean_thm)
+        code = struct_header * to_lean(lean_def)
+        if lean_thm !== nothing
+            code *= "\n\n" * to_lean(lean_thm)
+        end
         run_res = run_lean(code; timeout=timeout)
         # Soundness: a proof that relies on `sorry` is NOT verified.
         # Lean reports `sorry` as a warning, so exit code 0 alone is not sufficient.
         uses_sorry = any(w -> occursin("sorry", lowercase(w)), run_res.warnings)
-        status = (run_res.success && !uses_sorry) ? StatusVerified : StatusError
+        # Soundness: without postconditions there is no theorem to prove; the
+        # definition is merely type-checked and must not be reported as verified.
         if !run_res.success
+            status = StatusError
             msg = isempty(run_res.errors) ? "Lean 4 exited with code $(run_res.exit_code)" : join(run_res.errors, "\n")
         elseif uses_sorry
+            status = StatusError
             msg = "Proof relies on `sorry`; the theorem is not fully verified"
+        elseif lean_thm === nothing
+            status = StatusSyntaxChecked
+            msg = "Definition type-checked in Lean 4 (no postconditions declared; nothing proven)"
         else
+            status = StatusVerified
             msg = "Verified by Lean 4"
         end
         return VerificationResult(
