@@ -4,8 +4,7 @@ using JuLean
 @testset "Imperative Programming & Id.run do Transpilation" begin
 
     @testset "1. Array In-Place Mutation" begin
-        @formalize function update_element(arr::Vector{Float64}, idx::Int, val::Float64)::Float64
-            @requires idx >= 1
+        @formalize function update_element(arr::Vector{Float64}, idx::JuLean.PosInt, val::Float64)::Float64
             arr[idx] = val
             return arr[idx]
         end
@@ -16,8 +15,11 @@ using JuLean
 
         @test occursin("Id.run do", lean_code)
         @test occursin("let mut arr := arr", lean_code)
-        @test occursin("arr := arr.set! (idx - 1).toNat val", lean_code)
-        @test occursin("return arr[(idx - 1).toNat]!", lean_code)
+        @test occursin("arr := arr.set! (idx.1 - 1) val", lean_code)
+        @test occursin("return arr[(idx.1 - 1)]!", lean_code)
+
+        res = JuLean.verify(:update_element; backend=:Lean4, tactic="by\n  rfl")
+        @test JuLean.is_verified(res)
     end
 
     @testset "2. For Loop Over Range (1-based to 0-based mapping)" begin
@@ -82,8 +84,7 @@ using JuLean
     end
 
     @testset "5. Tree Pointer Climbing (Lowest Common Ancestor - LCA)" begin
-        @formalize function find_lca_test(parent::Vector{Int}, depth::Vector{Int}, u::Int, v::Int)::Int
-            @requires u >= 1 && v >= 1
+        @formalize function find_lca_test(parent::Vector{JuLean.NodeId}, depth::Vector{Int}, u::JuLean.NodeId, v::JuLean.NodeId)::JuLean.NodeId
             curr_u = u
             curr_v = v
             while depth[curr_u] > depth[curr_v]
@@ -106,7 +107,7 @@ using JuLean
         @test occursin("Id.run do", lean_code)
         @test occursin("let mut curr_u := u", lean_code)
         @test occursin("let mut curr_v := v", lean_code)
-        @test occursin("while depth[(curr_u - 1).toNat]! > depth[(curr_v - 1).toNat]! do", lean_code)
+        @test occursin("while depth[(curr_u.1 - 1)]! > depth[(curr_v.1 - 1)]! do", lean_code)
         @test occursin("while curr_u ≠ curr_v do", lean_code)
 
         res = JuLean.verify(:find_lca_test; backend=:Lean4, tactic="by\n  rfl")
@@ -114,11 +115,10 @@ using JuLean
     end
 
     @testset "6. Dynamic Array Construction (push! / Path Extraction)" begin
-        @formalize function extract_path_test(parent::Vector{Int}, from_node::Int, ancestor::Int)::Vector{Int}
-            @requires from_node >= 1 && ancestor >= 1
+        @formalize function extract_path_test(parent::Vector{JuLean.NodeId}, from_node::JuLean.NodeId, ancestor::JuLean.NodeId)::Vector{JuLean.NodeId}
             curr = from_node
-            path = Int[]
-            while curr != ancestor && curr != 0
+            path = JuLean.NodeId[]
+            while curr != ancestor
                 push!(path, curr)
                 curr = parent[curr]
             end

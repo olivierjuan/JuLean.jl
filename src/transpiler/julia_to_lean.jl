@@ -151,7 +151,7 @@ Translates a 1-based Julia index expression into a 0-based Lean 4 index:
 - Loop variable offset `i + k`: `i + k`
 - Positive integer / PNat `p`: `p.1 - 1` (pure Nat arithmetic without any .toNat cast!)
 - Integer literal `k`: `k - 1` (statically converted at transpile-time)
-- General `Int` expression `x`: `(x - 1).toNat`
+- General index expression `x`: `(x - 1)` (in pure `Nat`)
 """
 function translate_1based_index(raw_idx, fn_args::Vector{String}=String[], loop_vars::Set{String}=Set{String}(), fn_arg_types::Dict{Symbol, Any}=Dict{Symbol, Any}())::LeanExpr
     if raw_idx isa Symbol && string(raw_idx) in loop_vars
@@ -168,7 +168,7 @@ function translate_1based_index(raw_idx, fn_args::Vector{String}=String[], loop_
         return raw_idx == 0 ? LeanLitInt(0) : LeanLitInt(Int(raw_idx) - 1)
     else
         idx_inner = to_lean(julia_to_lean_expr(raw_idx, fn_args, loop_vars, fn_arg_types))
-        return LeanRawExpr("($idx_inner - 1).toNat")
+        return LeanRawExpr("($idx_inner - 1)")
     end
 end
 
@@ -506,8 +506,10 @@ function translate_do_stmt(stmt, declared_muts::Set{String}, loop_vars::Set{Stri
         v_name = string(stmt.args[1])
         val = julia_to_lean_expr(stmt.args[2], String[], loop_vars, fn_arg_types)
 
-        # Track element type if reading from an array
-        if stmt.args[2] isa Expr && stmt.args[2].head == :ref && length(stmt.args[2].args) >= 2
+        # Track element type if assigning from a variable or reading from an array
+        if stmt.args[2] isa Symbol && haskey(fn_arg_types, stmt.args[2])
+            fn_arg_types[Symbol(v_name)] = fn_arg_types[stmt.args[2]]
+        elseif stmt.args[2] isa Expr && stmt.args[2].head == :ref && length(stmt.args[2].args) >= 2
             arr_sym = stmt.args[2].args[1]
             if arr_sym isa Symbol && haskey(fn_arg_types, arr_sym)
                 atyp = fn_arg_types[arr_sym]
