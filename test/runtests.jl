@@ -2,6 +2,12 @@
 
 using Test
 using JuLean
+# Fixture module for the runtime-only stripping testset (16): modules must
+# live at top level; a `ROC.guard()` call exercises the qualified-name form.
+module ROC
+    guard() = false
+end
+
 
 @testset "JuLean.jl Formal Verification Test Suite" begin
 
@@ -347,6 +353,57 @@ using JuLean
         res_fail = JuLean.verify(:fake_span; backend=:Lean4)
         @test res_fail.status == StatusError
         @test !is_verified(res_fail)
+    end
+
+    @testset "16. Runtime-only instrumentation stripping" begin
+        # A runtime-only guard and check helper attached to a real kernel:
+        # debug contract checks must not leak into the transpiled body.
+
+        function _roc_guard()
+            return false
+        end
+
+        function _roc_check(x)
+            x >= 0 || error("contract violation: x >= 0, got $x")
+            return nothing
+        end
+
+        function roc_kernel(x::Real)::Real
+            if _roc_guard()
+                _roc_check(x)
+            end
+            return abs(x)
+        end
+
+        function roc_kernel_qualified(x::Real)::Real
+            if ROC.guard()
+                _roc_check(x)
+            end
+            return abs(x) + 1
+        end
+
+        JuLean.register_runtime_only!(:_roc_guard)
+        JuLean.register_runtime_only!(:_roc_check)
+        JuLean.register_runtime_only!(ROC.guard)
+
+        spec = JuLean.extract_formal_spec(roc_kernel)
+        body_str = string(spec.body)
+        @test !occursin("_roc_guard", body_str)
+        @test !occursin("_roc_check", body_str)
+        @test !occursin("error", body_str)
+        # The functional core survives stripping
+        @test occursin("abs", body_str)
+
+        # Module-qualified guards are stripped too
+        spec_q = JuLean.extract_formal_spec(roc_kernel_qualified)
+        @test !occursin("guard", string(spec_q.body))
+        @test occursin("abs", string(spec_q.body))
+
+        # End-to-end: the stripped kernel type-checks in Lean 4 (no @ensures
+        # declared, so the honest status is SyntaxChecked — not Error).
+        res = JuLean.verify(roc_kernel; backend=:Lean4)
+        @test res.status == StatusSyntaxChecked
+        @test !is_verified(res)
     end
 
     # 10. Imperative Programming & Id.run do Transpilation

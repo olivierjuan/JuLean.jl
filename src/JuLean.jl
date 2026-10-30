@@ -77,6 +77,74 @@ function register_inline!(fn_name, fdef::Expr)
 end
 
 """
+    RUNTIME_ONLY_REGISTRY
+
+Global registry of function names (`Symbol`) whose call sites are **runtime-only
+instrumentation**: debug contract checks, assertions, or logging attached to the
+running implementation. Statements in `@formalize`d bodies that call a
+runtime-only function are stripped before SMT / Lean 4 transpilation (see
+`strip_runtime_only`), so such instrumentation can live inside the real kernel
+without breaking the formal pipeline.
+"""
+const RUNTIME_ONLY_REGISTRY = Set{Symbol}()
+
+"""
+    register_runtime_only!(f::Function) -> f
+    register_runtime_only!(name::Symbol) -> name
+
+Registers `f` (or `name`) as a runtime-only helper. Any *statement* of a
+formalized function body that contains a call to a runtime-only name is
+dropped from the transpiled body — whole-statement, never partially rewritten.
+Typical use: a solver package keeps debug contract checks inside its kernels
+behind a predicate such as `if _contracts_enabled() ... end` and registers the
+predicate (and the check helpers) here.
+"""
+function register_runtime_only!(f::Function)
+    push!(RUNTIME_ONLY_REGISTRY, Symbol(nameof(f)))
+    return f
+end
+
+register_runtime_only!(name::Symbol) = (push!(RUNTIME_ONLY_REGISTRY, name); name)
+
+# True iff `ex` contains a call to a name in RUNTIME_ONLY_REGISTRY
+# (bare symbol or `Module.name`-qualified).
+function _contains_runtime_only_call(ex)
+    ex isa Expr || return false
+    if ex.head == :call && !isempty(ex.args)
+        fn = ex.args[1]
+        if fn isa Symbol && fn in RUNTIME_ONLY_REGISTRY
+            return true
+        end
+        if fn isa Expr && fn.head == :. && length(fn.args) == 2 &&
+           fn.args[2] isa QuoteNode && fn.args[2].value in RUNTIME_ONLY_REGISTRY
+            return true
+        end
+    end
+    return any(_contains_runtime_only_call, ex.args)
+end
+
+"""
+    strip_runtime_only(ex) -> Expr
+
+Removes every statement containing a call to a `register_runtime_only!`-ed
+name, recursively through nested blocks (`if` / `for` / `let` bodies). Returns
+`ex` unchanged when nothing matches.
+"""
+function strip_runtime_only(ex)
+    if ex isa Expr && ex.head == :block
+        kept = Any[]
+        for stmt in ex.args
+            _contains_runtime_only_call(stmt) && continue
+            push!(kept, strip_runtime_only(stmt))
+        end
+        return Expr(:block, filter(a -> !(a isa LineNumberNode), kept)...)
+    elseif ex isa Expr
+        return Expr(ex.head, (strip_runtime_only(a) for a in ex.args)...)
+    end
+    return ex
+end
+
+"""
     auto_extract_method_ast(func::Function, nargs::Int) -> Union{Tuple{Vector{Symbol}, Expr}, Nothing}
 
 Inspects `func` methods with arity `nargs`, uses `InteractiveUtils.functionloc` to locate
@@ -115,7 +183,7 @@ function auto_extract_method_ast(func::Function, nargs::Int)
         if clean_b isa Expr && clean_b.head == :return && length(clean_b.args) == 1
             clean_b = clean_b.args[1]
         end
-        return (args, clean_b)
+        return (args, strip_runtime_only(clean_b))
     end
     return nothing
 end
@@ -373,6 +441,9 @@ function extract_formal_spec(func::Function, argtypes::Tuple=())::FormalSpecific
         clean_body = clean_body.args[1]
     end
 
+    # Drop runtime-only instrumentation statements (debug contract checks)
+    # before transpilation: they have no formal counterpart.
+    clean_body = strip_runtime_only(clean_body)
     clean_body = expand_inlines(clean_body)
     pre = [expand_inlines(p) for p in pre]
     post = [expand_inlines(p) for p in post]
@@ -426,6 +497,9 @@ function extract_formal_spec(fdef::Expr)::FormalSpecification
 
     pre, post, inv, clean_body = extract_contracts(dict[:body])
 
+    # Drop runtime-only instrumentation statements (debug contract checks)
+    # before transpilation: they have no formal counterpart.
+    clean_body = strip_runtime_only(clean_body)
     # Transparently expand registered inline functions in formal contracts and body
     clean_body = expand_inlines(clean_body)
     pre = [expand_inlines(p) for p in pre]
@@ -588,6 +662,8 @@ export
     @formalize,
     @inline_formal,
     register_inline!,
+    register_runtime_only!,
+    strip_runtime_only,
     expand_inlines,
     @requires,
     @ensures,
