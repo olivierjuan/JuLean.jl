@@ -47,12 +47,12 @@ struct FormalSpecification
     preconditions::Vector{Expr}
     postconditions::Vector{Expr}
     invariants::Vector{Expr}
-    body::Expr
-    raw_ast::Expr
+    body::Any
+    raw_ast::Any
     docstring::String
 end
 
-function FormalSpecification(name::Symbol, args::Vector{Symbol}, body::Expr, raw_ast::Expr)
+function FormalSpecification(name::Symbol, args::Vector{Symbol}, body, raw_ast)
     return FormalSpecification(
         name,
         args,
