@@ -316,23 +316,6 @@ Retrieves the raw docstring associated with method `m` by querying Julia's doc m
 or reading the source comments immediately preceding the method definition.
 """
 function get_method_docstring(m::Method)::String
-    mod = m.module
-    b = Base.Docs.Binding(mod, m.name)
-    meta = Base.Docs.meta(mod)
-    if haskey(meta, b)
-        md = meta[b]
-        if md isa Base.Docs.MultiDoc
-            for (sig, docstr) in md.docs
-                if sig == m.sig || (m.sig <: sig)
-                    return join(docstr.text, "\n")
-                end
-            end
-            return join([join(d.text, "\n") for d in values(md.docs)], "\n")
-        elseif haskey(md, :text)
-            return join(md.text, "\n")
-        end
-    end
-
     file, line = Base.functionloc(m)
     if file !== nothing && isfile(file)
         lines = readlines(file)
@@ -358,6 +341,24 @@ function get_method_docstring(m::Method)::String
         end
         if !isempty(doc_lines)
             return join(doc_lines, "\n")
+        end
+    end
+
+    mod = m.module
+    b = Base.Docs.Binding(mod, m.name)
+    meta = Base.Docs.meta(mod)
+    if haskey(meta, b)
+        md = meta[b]
+        if md isa Base.Docs.MultiDoc
+            # Remove function type from m.sig before subtyping sig
+            m_arg_sig = Tuple{m.sig.parameters[2:end]...}
+            for (sig, docstr) in md.docs
+                if sig == m_arg_sig || (m_arg_sig <: sig)
+                    return join(docstr.text, "\n")
+                end
+            end
+        elseif haskey(md, :text)
+            return join(md.text, "\n")
         end
     end
     return ""
@@ -401,7 +402,12 @@ Extracts a formal specification directly from a Julia function:
 """
 function extract_formal_spec(func::Function, argtypes::Tuple=())::FormalSpecification
     ms = collect(methods(func))
-    matching = isempty(argtypes) ? filter(m -> nameof(m.module) ∉ (:Base, :Core), ms) : [which(func, argtypes)]
+    if isempty(argtypes)
+        with_contracts = filter(m -> !isempty(get_method_docstring(m)) && let (pre, post, _) = parse_doc_contracts(get_method_docstring(m)); !isempty(pre) || !isempty(post) end, ms)
+        matching = isempty(with_contracts) ? filter(m -> nameof(m.module) ∉ (:Base, :Core), ms) : with_contracts
+    else
+        matching = [which(func, Tuple{argtypes...})]
+    end
     if isempty(matching)
         error("No user methods found for function `$func`")
     end
@@ -441,8 +447,8 @@ function extract_formal_spec(func::Function, argtypes::Tuple=())::FormalSpecific
             push!(args, a)
             arg_types[a] = Real
         elseif a isa Expr && a.head == :(::)
-            sym = a.args[1]
-            typ = a.args[2]
+            sym = length(a.args) == 1 ? Symbol("_arg", length(args) + 1) : a.args[1]
+            typ = length(a.args) == 1 ? a.args[1] : a.args[2]
             push!(args, sym)
             arg_types[sym] = typ
         else
@@ -517,8 +523,8 @@ function extract_formal_spec(fdef::Expr)::FormalSpecification
             push!(args, a)
             arg_types[a] = Real
         elseif a isa Expr && a.head == :(::)
-            sym = a.args[1]
-            typ = a.args[2]
+            sym = length(a.args) == 1 ? Symbol("_arg", length(args) + 1) : a.args[1]
+            typ = length(a.args) == 1 ? a.args[1] : a.args[2]
             push!(args, sym)
             arg_types[sym] = typ
         else
