@@ -150,6 +150,21 @@ function strip_runtime_only(ex)
     end
     return ex
 end
+function _strip_pragmas(ex)
+    if ex isa Expr
+        if ex.head == :macrocall
+            mname = ex.args[1]
+            msym = mname isa Symbol ? mname : (mname isa GlobalRef ? mname.name : Symbol(string(mname)))
+            if msym in (Symbol("@inbounds"), Symbol("@simd"), Symbol("@inline"), Symbol("@noinline"), Symbol("@fastmath"), Symbol("@propagate_inbounds"))
+                clean_args = filter(a -> !(a isa LineNumberNode), ex.args[2:end])
+                return isempty(clean_args) ? nothing : _strip_pragmas(clean_args[end])
+            end
+        end
+        return Expr(ex.head, (_strip_pragmas(a) for a in ex.args)...)
+    end
+    return ex
+end
+
 
 """
     auto_extract_method_ast(func::Function, nargs::Int) -> Union{Tuple{Vector{Symbol}, Expr}, Nothing}
@@ -445,7 +460,10 @@ function extract_formal_spec(func::Function, argtypes::Tuple=())::FormalSpecific
     doc = get_method_docstring(m)
     pre, post, inv = parse_doc_contracts(doc)
 
-    clean_body = dict[:body]
+    # Annotation pragmas (@inbounds, @simd, @inline, @fastmath,
+    # @propagate_inbounds) carry no semantics for the formal model: unwrap
+    # them so real production kernels transpile cleanly.
+    clean_body = _strip_pragmas(dict[:body])
     if clean_body isa Expr && clean_body.head == :block
         stmts = filter(a -> !(a isa LineNumberNode), clean_body.args)
         clean_body = length(stmts) == 1 ? stmts[1] : clean_body
