@@ -466,6 +466,19 @@ function extract_formal_spec(func::Function, argtypes::Tuple=())::FormalSpecific
     # Extract contracts from docstring
     doc = get_method_docstring(m)
     pre, post, inv = parse_doc_contracts(doc)
+    # Also parse in-body comments matching `# @invariant <expr>`
+    if file !== nothing && isfile(file)
+        src_lines = readlines(file)
+        for l in src_lines[line:min(line + 200, length(src_lines))]
+            m_inv = match(r"^\s*#\s*`?@invariant\s+(.*?)(?:`|\s*$)", l)
+            if m_inv !== nothing
+                parsed_inv = Meta.parse(m_inv.captures[1])
+                if parsed_inv ∉ inv
+                    push!(inv, parsed_inv)
+                end
+            end
+        end
+    end
 
     # Annotation pragmas (@inbounds, @simd, @inline, @fastmath,
     # @propagate_inbounds) carry no semantics for the formal model: unwrap
