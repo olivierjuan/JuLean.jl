@@ -351,7 +351,8 @@ function get_method_docstring(m::Method)::String
         md = meta[b]
         if md isa Base.Docs.MultiDoc
             # Remove function type from m.sig before subtyping sig
-            m_arg_sig = Tuple{m.sig.parameters[2:end]...}
+            unwrapped = Base.unwrap_unionall(m.sig)
+            m_arg_sig = Tuple{unwrapped.parameters[2:end]...}
             for (sig, docstr) in md.docs
                 if sig == m_arg_sig || (m_arg_sig <: sig)
                     return join(docstr.text, "\n")
