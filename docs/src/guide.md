@@ -2,14 +2,70 @@
 
 ## 1. Design-by-Contract (DbC)
 
-JuLean provides expressive macros for writing runtime and static contracts:
+JuLean provides a flexible contract specification system supporting two complementary authoring modes:
+1. **Non-Invasive Docstring Contracts (Recommended for Libraries):** Specify contracts directly inside standard Julia Markdown docstrings using `- \`@requires ...\``, `- \`@ensures ...\``, and `- \`@invariant ...\``. This allows your library to maintain zero dependencies on `JuLean.jl` while exposing human-readable specifications in documentation.
+2. **In-Body Macro Contracts (For Verification Scripts & Kernels):** Annotate functions with `@formalize` or `@contract` and place `@requires`, `@ensures`, and `@invariant` directly inside the function body.
+
+### Core Contract Clauses & Syntax
 
 * `@requires condition [message]`: Input preconditions verified prior to body execution.
 * `@ensures condition [message]`: Postconditions capturing the returned value in variable `result`.
 * `@invariant condition [message]`: Invariants enforced on each iteration of loops and block states.
 * Implication operators: `implies(p, q)`, `p ⟹ q`, `p --> q`.
 
-### Global Toggle
+### Mode A: Non-Invasive Docstring Contracts
+
+In libraries that prioritize zero external dependencies (such as **Sirocco.jl**), contracts live directly in the Markdown docstring:
+
+```julia
+"""
+    clamp_flow(f, lb, ub)
+
+Clamps numerical flow `f` within bounds `[lb, ub]`.
+
+- `@requires lb <= ub`
+- `@ensures lb <= result <= ub`
+"""
+function clamp_flow(f, lb, ub)
+    return f < lb ? lb : (f > ub ? ub : f)
+end
+```
+
+JuLean extracts the AST and docstring contracts non-invasively:
+```julia
+using JuLean
+
+# Reflect AST and parse contracts from Markdown docstring:
+JuLean.formalize!(clamp_flow)
+
+# Verify with Z3 SMT solver:
+res = JuLean.verify(:clamp_flow; backend=:Z3)
+
+# Or wrap dynamically for runtime checking in test environments:
+safe_clamp = JuLean.contracted(clamp_flow)
+```
+
+### Mode B: In-Body Macro Contracts
+
+For dedicated formalization modules or interactive experimentation:
+
+```julia
+using JuLean
+
+@formalize function clamp_flow(f::Real, lb::Real, ub::Real)::Real
+    @requires lb <= ub
+    @ensures lb <= result <= ub
+    if f < lb
+        return lb
+    elseif f > ub
+        return ub
+    else
+        return f
+    end
+end
+```
+
+### Global Toggle for Runtime Contracts
 For zero production overhead, disable runtime assertions:
 ```julia
 disable_contracts!()

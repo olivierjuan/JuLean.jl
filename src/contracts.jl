@@ -123,8 +123,18 @@ end
 """
     @requires condition [message]
 
-Declare a function precondition. Can be used inside `@contract` or `@formalize` functions,
-or standalone as a runtime precondition check.
+Declare a function precondition.
+
+Can be used in two complementary ways:
+1. **Inside Markdown docstrings** (recommended for zero-dependency libraries):
+   Annotate standard Julia docstrings with `- \`@requires <condition>\``.
+   JuLean extracts these non-invasively via docstring reflection (`JuLean.formalize!(func)`),
+   allowing client libraries to declare formal contracts without taking a dependency on JuLean.
+2. **Inside function bodies**:
+   Placed directly in functions annotated with `@contract` or `@formalize` (or used standalone
+   for runtime precondition checking).
+
+Throws `ContractViolationError` if `condition` evaluates to false when contracts are enabled.
 """
 macro requires(cond, msg="")
     msg_str = msg == "" ? string(cond) : msg
@@ -138,8 +148,18 @@ end
 """
     @ensures condition [message]
 
-Declare a function postcondition. Can be used inside `@contract` or `@formalize` functions.
-Inside postconditions, `result` refers to the return value of the function.
+Declare a function postcondition.
+
+Can be used in two complementary ways:
+1. **Inside Markdown docstrings** (recommended for zero-dependency libraries):
+   Annotate standard Julia docstrings with `- \`@ensures <condition>\``.
+   Inside postconditions, `result` refers to the return value of the function.
+   Extracted non-invasively by JuLean's reflection engine (`JuLean.formalize!(func)`).
+2. **Inside function bodies**:
+   Placed directly in functions annotated with `@contract` or `@formalize`.
+   Inside postconditions, `result` refers to the return value of the function.
+
+Throws `ContractViolationError` if `condition` evaluates to false upon function return.
 """
 macro ensures(cond, msg="")
     msg_str = msg == "" ? string(cond) : msg
@@ -153,7 +173,18 @@ end
 """
     @invariant condition [message]
 
-Declare a loop or data invariant.
+Declare a loop or state invariant.
+
+Can be used in two complementary ways:
+1. **Inside Markdown docstrings**:
+   Annotate standard Julia docstrings with `- \`@invariant <condition>\`` for non-invasive
+   contract specification extracted during reflection.
+2. **Inside loop bodies**:
+   Placed directly inside `while` or `for` loops in functions annotated with `@contract`
+   or `@formalize`. Enforced on every iteration at runtime, and verified symbolically
+   via Bounded Model Checking (`JuLean.verify(fn; backend=:BMC)`).
+
+Throws `ContractViolationError` if `condition` evaluates to false during loop execution.
 """
 macro invariant(cond, msg="")
     msg_str = msg == "" ? string(cond) : msg

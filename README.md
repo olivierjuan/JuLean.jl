@@ -40,17 +40,19 @@ Interactive Theorem Provers (like **Lean 4** and **Mathlib**) provide mathematic
 
 Verification is not all-or-nothing. JuLean provides a progressive ladder tailored to every stage of development:
 
-```
-[ Tier 0: Dynamic DbC ]          -->  Runtime contracts during testing; 0% cost in production
-         │
-         ▼
-[ Tier 1: Automated SMT ]         -->  Push-button Z3 counterexample search & unsat cores (ms)
-         │
-         ▼
-[ Tier 2: Bounded Model Check ]  -->  Symbolic loop unrolling up to depth k via SMT
-         │
-         ▼
-[ Tier 3: Deductive Lean 4 ]     -->  Full mechanized kernel verification against Mathlib theorems
+```mermaid
+flowchart TD
+    T0["🛡️ <b>Tier 0: Dynamic DbC</b><br/><code>@requires</code> · <code>@ensures</code> · <code>@invariant</code><br/><i>Runtime contract enforcement during tests • 0% production overhead</i>"]
+    
+    T1["⚡ <b>Tier 1: SMT Falsification (Z3)</b><br/>Bundled Z3 counterexample search & minimal unsat-core extraction<br/><i>Push-button bug finding across all inputs in milliseconds</i>"]
+    
+    T2["🔄 <b>Tier 2: Bounded Model Checking (BMC)</b><br/>Symbolic loop unrolling up to depth <i>k</i> via SMT<br/><i>Verifies invariant preservation over iterative states (&lt; 1 second)</i>"]
+    
+    T3["🏛️ <b>Tier 3: Deductive Mechanized Proof (Lean 4)</b><br/>Complete formal verification with Mathlib (exact ℚ arithmetic)<br/><i>Machine-checked proofs by Lean microkernel • Strict zero-sorry soundness</i>"]
+
+    T0 -->|"Extract Formal Spec"| T1
+    T1 -->|"Unroll Loop Transitions"| T2
+    T2 -->|"Mechanize Inductive Invariants"| T3
 ```
 
 | Tier | Engine | Target | Guarantees | Latency | Production Overhead |

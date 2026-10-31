@@ -23,7 +23,7 @@ JuLean is designed to be **100% domain-agnostic**: it can verify algorithms rang
 JuLean implements a tiered verification architecture:
 
 1. **Level 0 — Dynamic Design-by-Contract (DbC):**
-   Zero-overhead runtime contract enforcement (`@contract`, `@requires`, `@ensures`, `@invariant`). Contracts can be toggled on/off globally with `enable_contracts!` / `disable_contracts!`.
+   Zero-overhead runtime contract enforcement (`@contract`, `@requires`, `@ensures`, `@invariant`). Contracts can be written **directly in Julia code** via macros or **non-invasively inside Markdown docstrings** (parsed automatically via docstring reflection, keeping production code free of JuLean dependencies). Contracts can be toggled on/off globally with `enable_contracts!` / `disable_contracts!`.
 2. **Level 1 — Rapid SMT Falsification (Z3):**
    Automated verification and counterexample search via native SMT-LIB 2.6 generation and `z3_jll`. Detects failing contracts and decodes exact rational counterexamples (`Rational{BigInt}`) in milliseconds.
 3. **Level 2 — Bounded Model Checking (BMC):**
@@ -34,6 +34,33 @@ JuLean implements a tiered verification architecture:
 ---
 
 ## Quick Start
+
+### Approach 1: Non-Invasive Contracts in Markdown Docstrings
+
+Ideal for production packages that cannot take a dependency on JuLean. Contracts are specified directly in the standard docstring:
+
+```julia
+"""
+    reduced_cost(cost, pi_u, pi_v)
+
+- `@requires cost >= 0`
+- `@ensures result == cost - (pi_u - pi_v)`
+"""
+reduced_cost(cost, pi_u, pi_v) = cost - (pi_u - pi_v)
+
+using JuLean
+
+# Reflect AST and parse contracts from Markdown docstring:
+JuLean.formalize!(reduced_cost)
+
+# Verify with Z3:
+res = JuLean.verify(:reduced_cost; backend=:Z3)
+println(res.status) # StatusVerified
+```
+
+### Approach 2: Direct In-Body Contracts with `@formalize`
+
+Ideal for formal verification modules, self-contained algorithms, and rapid prototyping:
 
 ```julia
 using JuLean
