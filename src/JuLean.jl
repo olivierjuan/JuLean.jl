@@ -108,8 +108,15 @@ register_runtime_only!(name::Symbol) = (push!(RUNTIME_ONLY_REGISTRY, name); name
 
 # True iff `ex` contains a call to a name in RUNTIME_ONLY_REGISTRY
 # (bare symbol or `Module.name`-qualified).
+#
+# Loop statements (`while` / `for`) deliberately return `false`: their
+# per-iteration instrumentation is removed by the recursive block stripping
+# in `strip_runtime_only`, but the loop itself must survive (e.g. a driver
+# `while` whose body contains guarded contract checks must not be dropped
+# as a whole statement).
 function _contains_runtime_only_call(ex)
     ex isa Expr || return false
+    ex.head in (:while, :for) && return false
     if ex.head == :call && !isempty(ex.args)
         fn = ex.args[1]
         if fn isa Symbol && fn in RUNTIME_ONLY_REGISTRY
@@ -409,6 +416,12 @@ function extract_formal_spec(func::Function, argtypes::Tuple=())::FormalSpecific
     arg_types = Dict{Symbol, Any}()
 
     for a in dict[:args]
+        # Optional positional arguments arrive as Expr(:kw, inner, default);
+        # the default value is not part of the formal signature, so unwrap
+        # to the declared name/type.
+        if a isa Expr && a.head == :kw && length(a.args) >= 2
+            a = a.args[1]
+        end
         if a isa Symbol
             push!(args, a)
             arg_types[a] = Real
@@ -476,6 +489,12 @@ function extract_formal_spec(fdef::Expr)::FormalSpecification
     arg_types = Dict{Symbol, Any}()
 
     for a in dict[:args]
+        # Optional positional arguments arrive as Expr(:kw, inner, default);
+        # the default value is not part of the formal signature, so unwrap
+        # to the declared name/type.
+        if a isa Expr && a.head == :kw && length(a.args) >= 2
+            a = a.args[1]
+        end
         if a isa Symbol
             push!(args, a)
             arg_types[a] = Real
