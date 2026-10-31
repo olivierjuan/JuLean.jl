@@ -644,6 +644,43 @@ function formalize!(func::Function, argtypes::Tuple=())::FormalSpecification
     register_inline!(func, spec.args, spec.body)
     return spec
 end
+"""
+    contracted(func::Function, argtypes::Tuple=()) -> Function
+
+Wraps an existing Julia function and returns a new function that dynamically checks
+preconditions (`@requires`) and postconditions (`@ensures`) parsed from `func`'s
+Markdown docstring whenever `JuLean.CONTRACTS_ENABLED[]` is true.
+"""
+function contracted(func::Function, argtypes::Tuple=())
+    spec = extract_formal_spec(func, argtypes)
+    arg_syms = spec.args
+    pre_exprs = spec.preconditions
+    post_exprs = spec.postconditions
+    fn_name = spec.name
+
+    pre_checks = [quote
+        if $(@__MODULE__).CONTRACTS_ENABLED[] && !($(p))
+            throw($(@__MODULE__).ContractViolationError(:precondition, $(string(p)), "Precondition violated", $(QuoteNode(fn_name))))
+        end
+    end for p in pre_exprs]
+
+    post_checks = [quote
+        if $(@__MODULE__).CONTRACTS_ENABLED[] && !($(q))
+            throw($(@__MODULE__).ContractViolationError(:postcondition, $(string(q)), "Postcondition violated", $(QuoteNode(fn_name))))
+        end
+    end for q in post_exprs]
+
+    body = quote
+        $(pre_checks...)
+        result = $(func)($(arg_syms...))
+        $(post_checks...)
+        return result
+    end
+
+    mod = parentmodule(func)
+    return mod.eval(Expr(:->, Expr(:tuple, arg_syms...), body))
+end
+
 
 """
     @formalize function ... end
@@ -713,6 +750,7 @@ export
     enable_contracts!,
     disable_contracts!,
     ContractViolationError,
+    contracted,
 
     # Specifications & Verification
     PosInt,
