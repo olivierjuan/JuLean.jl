@@ -284,9 +284,10 @@ julia --project=docs -e 'using Pkg; Pkg.develop(path=pwd()); Pkg.instantiate(); 
 
 ---
 
-## Contributing & Community
+## Contributing & AI/LLM Guidelines
 
 Contributions, issue reports, and RFCs are welcome!
+* For autonomous agents and LLMs integrating or modifying JuLean, consult the comprehensive [AGENTS.md](AGENTS.md) guide for architecture mandates (Option A package extensions, docstring reflection, runtime check stripping, and sorry-free Lean 4 proofs).
 * Follow the [ROADMAP.md](ROADMAP.md) to see planned features and upcoming milestones.
 * All code, comments, docstrings, and documentation follow the **English-only** convention.
 

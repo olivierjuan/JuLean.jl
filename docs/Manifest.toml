@@ -126,7 +126,7 @@ version = "1.13.0"
 deps = ["MacroTools", "z3_jll"]
 path = "/home/D01856/dunes/JuLean.jl"
 uuid = "60d1f2a1-a197-4d78-8ba3-1a6337fe4745"
-version = "1.0.0"
+version = "1.1.0"
 
     [deps.JuLean.extensions]
     JuLeanMetatheoryExt = "Metatheory"

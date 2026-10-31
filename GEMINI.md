@@ -8,3 +8,4 @@
 - **Verification Pipeline:** Target Lean 4 (via `Lake` and `Mathlib`) as the primary interactive theorem proving backend, supplemented by SMT/Z3 (`Satisfiability.jl`) for counterexample finding.
 - **Exact Arithmetic:** Numeric optimization variables and certificates use exact rational arithmetic (`ℚ` / `Rational{BigInt}`) to avoid floating-point inaccuracies.
 - **Zero-Overhead Option:** Runtime contracts must be switchable with `enable_contracts!` / `disable_contracts!`.
+- **AI/LLM Guidelines:** Detailed instructions, architecture patterns (Option A, package extension, docstring reflection, Lean 4 tactics, and runtime stripping) are specified in `AGENTS.md`. All AI assistants modifying or integrating `JuLean.jl` must strictly follow `AGENTS.md`.
