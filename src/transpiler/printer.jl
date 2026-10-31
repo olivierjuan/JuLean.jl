@@ -250,7 +250,9 @@ function to_lean(decl::LeanDecl)::String
         all_binders = filter(!isempty, [params_str, hyps_str])
         binders_str = isempty(all_binders) ? "" : " " * join(all_binders, " ")
         stmt_str = to_lean(decl.statement)
-        proof_str = isempty(decl.proof) ? "by sorry" : decl.proof
+        proof_str = isempty(decl.proof) ? "by sorry" :
+            (startswith(strip(decl.proof), "by") ? decl.proof :
+             "by\n  " * replace(strip(decl.proof), "\n" => "\n  "))
         return "$(doc_str)theorem $(decl.name)$(binders_str) : $(stmt_str) := $(proof_str)"
     elseif decl isa LeanStructure
         doc_str = isempty(decl.doc) ? "" : "/-- $(decl.doc) -/\n"
